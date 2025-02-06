@@ -1,12 +1,31 @@
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Response, Server, Client, Uri};
 use std::convert::Infallible;
+use lazy_static::lazy_static;
+use tokio::sync::Mutex;
+use crate::rate_limiter::RateLimiter;
 
 static BACKEND: &str = "http://127.0.0.1:8080"; // Backend server address (adjust as needed)
+
+lazy_static! {
+    // Global rate limiter: Here, capacity is 100 tokens and 100 tokens are refilled per second.
+    static ref GLOBAL_RATE_LIMITER: Mutex<RateLimiter> = Mutex::new(RateLimiter::new(100.0, 100.0));
+}
 
 /// Handles incoming HTTP requests and forwards them to the backend.
 async fn handle_request(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
     log::info!("Proxying request: {} {}", req.method(), req.uri());
+
+    // Check global rate limiter before processing the request.
+    {
+        let mut limiter = GLOBAL_RATE_LIMITER.lock().await;
+        if !limiter.allow().await {
+            return Ok(Response::builder()
+                .status(429)
+                .body(Body::from("Too Many Requests"))
+                .unwrap());
+        }
+    }
 
     let client = Client::new();
 

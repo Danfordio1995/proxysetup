@@ -1,6 +1,8 @@
-/// Checks whether access is permitted for a given domain or resource.  
-/// In a full implementation you might use a compressed trie for wildcard matching.
+/// Checks whether access is permitted for a given domain or resource using a simple rule.
+/// For example, domains ending with "disallowed.com" are blocked.
 pub fn check_acl(domain: &str) -> bool {
-    // For now, all domains are allowed.
+    if domain.ends_with("disallowed.com") {
+        return false;
+    }
     true
 } 
