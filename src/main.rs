@@ -4,6 +4,7 @@ mod cache;
 mod acl;
 mod web;
 mod logger;
+mod rate_limiter;
 
 use tokio::join;
 
