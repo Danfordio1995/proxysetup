@@ -37,7 +37,8 @@ pub async fn run_web_interface() {
             let user = params.get("user").unwrap_or(&"".to_string());
             let pass = params.get("pass").unwrap_or(&"".to_string());
             if user == "admin" && pass == "password" {
-                warp::reply::html(r##"<!DOCTYPE html>
+                warp::reply::with_status(
+                    warp::reply::html(r##"<!DOCTYPE html>
 <html>
 <head>
     <title>Admin Dashboard</title>
@@ -95,10 +96,12 @@ pub async fn run_web_interface() {
         });
     </script>
 </body>
-</html>"##)
+</html>"##),
+                    warp::http::StatusCode::OK
+                )
             } else {
                 warp::reply::with_status(
-                    "Unauthorized: Invalid credentials".to_string(),
+                    warp::reply::html("Unauthorized: Invalid credentials"),
                     warp::http::StatusCode::UNAUTHORIZED
                 )
             }
