@@ -37,7 +37,7 @@ pub async fn run_web_interface() {
             let user = params.get("user").unwrap_or(&"".to_string());
             let pass = params.get("pass").unwrap_or(&"".to_string());
             if user == "admin" && pass == "password" {
-                warp::reply::html(r#"<!DOCTYPE html>
+                warp::reply::html(r##"<!DOCTYPE html>
 <html>
 <head>
     <title>Admin Dashboard</title>
@@ -95,7 +95,7 @@ pub async fn run_web_interface() {
         });
     </script>
 </body>
-</html>"#)
+</html>"##)
             } else {
                 warp::reply::with_status(
                     "Unauthorized: Invalid credentials".to_string(),
@@ -106,7 +106,7 @@ pub async fn run_web_interface() {
 
     // Admin login page: Provides instructions on the admin credentials.
     let admin_login = warp::path!("admin" / "login").map(|| {
-        warp::reply::html(r#"<!DOCTYPE html>
+        warp::reply::html(r##"<!DOCTYPE html>
 <html>
 <head>
     <title>Admin Login</title>
@@ -136,7 +136,7 @@ pub async fn run_web_interface() {
     <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.2/dist/js/bootstrap.bundle.min.js"></script>
 </body>
-</html>"#)
+</html>"##)
     });
 
     // Combine routes.
