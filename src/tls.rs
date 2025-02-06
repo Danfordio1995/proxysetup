@@ -1,16 +1,19 @@
-use rustls::{ServerConfig, NoClientAuth};
+use rustls::{ServerConfig, Certificate, PrivateKey};
 use std::fs;
 use std::sync::Arc;
 
-/// Loads the TLS configuration using a certificate and private key.  
+/// Loads the TLS configuration using a certificate and private key.
 /// (This is a stub—you can later integrate this into the proxy listener.)
 pub fn load_tls_config() -> Arc<ServerConfig> {
     // Paths to your TLS certificate and private key.
     let certs = load_certs("cert.pem");
     let key = load_private_key("key.pem");
 
-    let mut config = ServerConfig::new(NoClientAuth::new());
-    config.set_single_cert(certs, key).expect("Failed to set certificate");
+    let config = ServerConfig::builder()
+        .with_safe_defaults()
+        .with_no_client_auth()
+        .with_single_cert(certs, key)
+        .expect("Failed to set certificate");
     Arc::new(config)
 }
 
