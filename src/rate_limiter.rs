@@ -1,5 +1,10 @@
 use std::time::{Instant};
 use lazy_static::lazy_static;
+use tokio::sync::Mutex;
+
+lazy_static! {
+    pub static ref CACHE: Mutex<lru::LruCache<String, Vec<u8>>> = Mutex::new(lru::LruCache::new(100));
+}
 
 /// A basic token bucket rate limiter.
 pub struct RateLimiter {

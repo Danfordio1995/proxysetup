@@ -3,7 +3,7 @@ use hyper::{Body, Request, Response, Server, Client, Uri};
 use std::convert::Infallible;
 use lazy_static::lazy_static;
 use tokio::sync::Mutex;
-use crate::rate_limiter::RateLimiter;
+use crate::{rate_limiter::RateLimiter, cache::cache_get, acl::check_acl};
 
 static BACKEND: &str = "http://127.0.0.1:8080"; // Backend server address (adjust as needed)
 
@@ -25,6 +25,20 @@ async fn handle_request(req: Request<Body>) -> Result<Response<Body>, hyper::Err
                 .body(Body::from("Too Many Requests"))
                 .unwrap());
         }
+    }
+
+    // ACL check
+    let host = req.uri().host().unwrap_or_default();
+    if !check_acl(host) {
+        return Ok(Response::builder()
+            .status(403)
+            .body(Body::from("Forbidden"))
+            .unwrap());
+    }
+
+    // Check cache
+    if let Some(cached) = cache_get(req.uri().path()).await {
+        return Ok(Response::new(Body::from(cached)));
     }
 
     let client = Client::new();
