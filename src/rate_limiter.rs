@@ -1,5 +1,5 @@
 use std::time::{Instant};
-use tokio::sync::Mutex;
+use lazy_static::lazy_static;
 
 /// A basic token bucket rate limiter.
 pub struct RateLimiter {

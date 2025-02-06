@@ -1,4 +1,4 @@
-use rustls::{ServerConfig, Certificate, PrivateKey};
+use rustls::ServerConfig;
 use std::fs;
 use std::sync::Arc;
 

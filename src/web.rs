@@ -34,8 +34,10 @@ pub async fn run_web_interface() {
     let admin = warp::path("admin")
         .and(warp::query::<HashMap<String, String>>())
         .map(|params: HashMap<String, String>| {
-            let user = params.get("user").unwrap_or(&"".to_string());
-            let pass = params.get("pass").unwrap_or(&"".to_string());
+            let empty = String::new();
+            let user = params.get("user").unwrap_or(&empty);
+            let empty_pass = String::new();
+            let pass = params.get("pass").unwrap_or(&empty_pass);
             if user == "admin" && pass == "password" {
                 warp::reply::with_status(
                     warp::reply::html(r##"<!DOCTYPE html>
