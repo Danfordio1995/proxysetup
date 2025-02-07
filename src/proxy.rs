@@ -62,7 +62,7 @@ async fn handle_request(req: Request<Body>, remote_addr: SocketAddr) -> Result<R
     let mut parts = req.uri().clone().into_parts();
     let backend_uri: Uri = BACKEND.parse().map_err(|e| {
         log::error!("Failed to parse backend URI: {}", e);
-        hyper::Error::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+        hyper::Error::from(std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
     })?;
     
     parts.scheme = backend_uri.scheme().cloned();
@@ -70,7 +70,7 @@ async fn handle_request(req: Request<Body>, remote_addr: SocketAddr) -> Result<R
     
     let new_uri = Uri::from_parts(parts).map_err(|e| {
         log::error!("Failed to build URI: {}", e);
-        hyper::Error::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+        hyper::Error::from(std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
     })?;
 
     // Rebuild the request with the updated URI
@@ -92,7 +92,7 @@ async fn handle_request(req: Request<Body>, remote_addr: SocketAddr) -> Result<R
 
     let proxy_req = req_builder.body(body).map_err(|e| {
         log::error!("Failed to build proxy request: {}", e);
-        hyper::Error::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+        hyper::Error::from(std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
     })?;
 
     // Forward the request to the backend and return the response
