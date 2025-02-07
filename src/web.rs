@@ -5,9 +5,12 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use serde::{Deserialize, Serialize};
 use crate::config_manager::{METRICS};
-use futures_util::StreamExt;
-use futures_util::SinkExt;
+use futures_util::{StreamExt, SinkExt};
 use prometheus::{Encoder, TextEncoder};
+use warp::reply::WithStatus;
+use warp::http::StatusCode;
+use warp::Rejection;
+use std::convert::Infallible;
 
 // Add configuration structures
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -94,23 +97,25 @@ impl Default for RateLimitConfig {
 /// Runs the web interface on port 9000, serving dashboard, metrics, configuration, and admin endpoints.
 pub async fn run_web_interface() {
     // Dashboard endpoint (root)
-    let root = warp::path::end().map(|| {
-        "Proxy Dashboard - Welcome! This is a stub for the production dashboard."
-    });
+    let root = warp::path::end()
+        .map(|| "Proxy Dashboard - Welcome!")
+        .boxed();
 
     // Metrics endpoint exposes Prometheus-compatible metrics.
-    let metrics = warp::path!("metrics").map(|| {
-        let encoder = TextEncoder::new();
-        let metric_families = prometheus::gather();
-        let mut buffer = Vec::new();
-        encoder.encode(&metric_families, &mut buffer).unwrap();
-        String::from_utf8(buffer).unwrap()
-    });
+    let metrics = warp::path!("metrics")
+        .map(|| {
+            let encoder = TextEncoder::new();
+            let metric_families = prometheus::gather();
+            let mut buffer = Vec::new();
+            encoder.encode(&metric_families, &mut buffer).unwrap();
+            String::from_utf8(buffer).unwrap()
+        })
+        .boxed();
 
     // Configuration endpoint stub.
-    let config = warp::path("config").map(|| {
-        warp::reply::html(include_str!("config_page.html"))
-    });
+    let config = warp::path("config")
+        .map(|| warp::reply::html(include_str!("config_page.html")))
+        .boxed();
 
     // Admin dashboard endpoint: expects query parameters "user" and "pass".
     let admin = warp::path("admin")
@@ -123,20 +128,21 @@ pub async fn run_web_interface() {
             if user == "admin" && pass == "password" {
                 warp::reply::with_status(
                     warp::reply::html(include_str!("admin_dashboard.html")),
-                    warp::http::StatusCode::OK
+                    StatusCode::OK
                 )
             } else {
                 warp::reply::with_status(
                     warp::reply::html("Unauthorized: Invalid credentials"),
-                    warp::http::StatusCode::UNAUTHORIZED
+                    StatusCode::UNAUTHORIZED
                 )
             }
-        });
+        })
+        .boxed();
 
     // Admin login page: Provides instructions on the admin credentials.
-    let admin_login = warp::path!("admin" / "login").map(|| {
-        warp::reply::html(include_str!("admin_login.html"))
-    });
+    let admin_login = warp::path!("admin" / "login")
+        .map(|| warp::reply::html(include_str!("admin_login.html")))
+        .boxed();
 
     // Add API endpoints for configuration
     let config_state = Arc::clone(&PROXY_CONFIG);
@@ -148,9 +154,10 @@ pub async fn run_web_interface() {
             let config_state = Arc::clone(&config_state);
             async move {
                 let config = config_state.read().await;
-                Ok::<_, warp::Rejection>(warp::reply::json(&*config))
+                Ok::<_, Rejection>(warp::reply::json(&*config))
             }
-        });
+        })
+        .boxed();
 
     // POST update configuration
     let update_config = warp::path!("api" / "config")
@@ -164,18 +171,19 @@ pub async fn run_web_interface() {
                 
                 if let Err(e) = save_config_to_disk(&new_config) {
                     log::error!("Failed to save configuration: {}", e);
-                    return Ok(warp::reply::with_status(
+                    return Ok::<_, Rejection>(warp::reply::with_status(
                         "Failed to save configuration",
-                        warp::http::StatusCode::INTERNAL_SERVER_ERROR,
+                        StatusCode::INTERNAL_SERVER_ERROR,
                     ));
                 }
 
                 Ok(warp::reply::with_status(
                     "Configuration updated successfully",
-                    warp::http::StatusCode::OK,
+                    StatusCode::OK,
                 ))
             }
-        });
+        })
+        .boxed();
 
     // Add API endpoints for metrics
     let metrics_state = Arc::clone(&METRICS);
@@ -187,18 +195,20 @@ pub async fn run_web_interface() {
             let metrics_state = Arc::clone(&metrics_state);
             async move {
                 let metrics = metrics_state.read().await;
-                Ok::<_, warp::Rejection>(warp::reply::json(&*metrics))
+                Ok::<_, Rejection>(warp::reply::json(&*metrics))
             }
-        });
+        })
+        .boxed();
 
     // WebSocket endpoint for real-time metrics updates
     let ws_metrics = warp::path!("ws" / "metrics")
         .and(warp::ws())
         .map(|ws: warp::ws::Ws| {
             ws.on_upgrade(|websocket| handle_ws_client(websocket))
-        });
+        })
+        .boxed();
 
-    // Combine routes
+    // Combine routes with explicit type annotations
     let routes = root
         .or(metrics)
         .or(config)
@@ -207,7 +217,8 @@ pub async fn run_web_interface() {
         .or(get_config)
         .or(update_config)
         .or(get_metrics)
-        .or(ws_metrics);
+        .or(ws_metrics)
+        .with(warp::cors().allow_any_origin());
 
     // Serve the web interface on port 9000.
     warp::serve(routes)
