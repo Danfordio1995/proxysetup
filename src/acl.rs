@@ -85,8 +85,8 @@ pub async fn clear_rules() {
 fn is_ip_in_range(ip: &IpAddr, range: &str) -> bool {
     // Basic implementation - in production, use a proper CIDR parsing library
     match (ip, range.split('/').collect::<Vec<_>>().as_slice()) {
-        (IpAddr::V4(ip), [network, bits]) => {
-            if let (Ok(network_ip), Ok(bits)) = (
+        (IpAddr::V4(_ip), [network, bits]) => {
+            if let (Ok(_network_ip), Ok(_bits)) = (
                 IpAddr::from_str(network),
                 bits.parse::<u8>(),
             ) {
