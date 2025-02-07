@@ -90,10 +90,19 @@ async fn save_acl_config(config: &AclConfig) -> Result<(), Box<dyn std::error::E
 
 pub async fn load_acl_config(path: &str) -> Result<(), Box<dyn std::error::Error>> {
     if let Ok(contents) = fs::read_to_string(path) {
-        let config: AclConfig = serde_json::from_str(&contents)?;
-        update_acl_config(config).await;
+        let proxy_config: serde_json::Value = serde_json::from_str(&contents)?;
+        
+        // Extract the ACL configuration from the "acl" field
+        if let Some(acl_value) = proxy_config.get("acl") {
+            let config: AclConfig = serde_json::from_value(acl_value.clone())?;
+            update_acl_config(config).await;
+            Ok(())
+        } else {
+            Err("No ACL configuration found in proxy.json".into())
+        }
+    } else {
+        Err(format!("Failed to read configuration file: {}", path).into())
     }
-    Ok(())
 }
 
 pub async fn check_acl(host: &str, ip: Option<&str>, _path: Option<&str>) -> bool {
