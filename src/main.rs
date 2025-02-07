@@ -1,5 +1,14 @@
-use proxy_project::proxy;
-use proxy_project::web;
+use crate::proxy;
+use crate::web;
+
+mod acl;
+mod auth;
+mod cache;
+mod config_manager;
+mod proxy;
+mod rate_limiter;
+mod users;
+mod web;
 
 #[tokio::main]
 async fn main() {
