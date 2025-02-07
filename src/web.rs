@@ -261,7 +261,8 @@ pub async fn run_web_interface() {
         .or(add_blocked_domain_route())
         .or(remove_blocked_domain_route())
         .or(add_blocked_ip_route())
-        .or(remove_blocked_ip_route());
+        .or(remove_blocked_ip_route())
+        .boxed();  // Box the combined routes to ensure consistent type
 
     // Create CORS configuration
     let cors = warp::cors()
@@ -284,8 +285,8 @@ pub async fn run_web_interface() {
         .or(metrics)
         .or(ws_metrics)
         .or(acl_routes)
-        .recover(handle_rejection)
-        .with(cors);
+        .with(cors)
+        .recover(handle_rejection);
 
     println!("Web interface running on http://localhost:9000");
     println!("Default admin credentials: username='admin', password='admin123'");
