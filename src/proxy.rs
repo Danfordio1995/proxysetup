@@ -5,7 +5,7 @@ use lazy_static::lazy_static;
 use tokio::sync::Mutex;
 use std::net::SocketAddr;
 use crate::{rate_limiter::RateLimiter, cache::cache_get, acl::check_acl, config_manager::ConfigManager};
-use crate::acl::load_acl_from_config;
+use crate::acl::load_acl_config;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use std::sync::Arc;
@@ -216,7 +216,7 @@ pub async fn run_proxy() {
     }
 
     // Load ACL configuration.
-    if let Err(e) = load_acl_from_config("config/proxy.json").await {
+    if let Err(e) = load_acl_config("config/proxy.json").await {
         log::error!("Failed to load ACL configuration: {}", e);
         return;
     }
