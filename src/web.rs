@@ -77,8 +77,8 @@ impl Default for CacheConfig {
 impl Default for TlsConfig {
     fn default() -> Self {
         Self {
-            cert_path: "proxy_project/certs/cert.pem".to_string(),
-            key_path: "proxy_project/certs/key.pem".to_string(),
+            cert_path: "/opt/proxy_project/certs/cert.pem".to_string(),
+            key_path: "/opt/proxy_project/certs/key.pem".to_string(),
             enable_tls13: true,
             session_tickets: true,
         }
@@ -239,7 +239,7 @@ pub async fn run_web_interface() {
 
 // Helper functions for configuration management
 fn save_config_to_disk(config: &ProxyConfig) -> std::io::Result<()> {
-    let config_path = "proxy_project/config/proxy.json";
+    let config_path = "/opt/proxy_project/config/proxy.json";
     let config_str = serde_json::to_string_pretty(config)?;
     std::fs::write(config_path, config_str)
 }
