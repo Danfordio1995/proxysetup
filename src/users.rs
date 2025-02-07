@@ -2,11 +2,18 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use argon2::{self, Config};
+use argon2::{
+    password_hash::{
+        rand_core::OsRng,
+        PasswordHash, PasswordHasher, PasswordVerifier, SaltString
+    },
+    Argon2
+};
 use rand::Rng;
 use jsonwebtoken::{encode, decode, Header, Validation, EncodingKey, DecodingKey};
 use chrono::{Utc, Duration};
 use std::fs;
+use std::error::Error as StdError;
 
 const JWT_SECRET: &[u8] = b"your-secret-key"; // In production, use environment variables
 const SALT_LENGTH: usize = 32;
@@ -53,13 +60,13 @@ lazy_static::lazy_static! {
 pub struct UserManager;
 
 impl UserManager {
-    pub async fn init() -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn init() -> Result<(), Box<dyn StdError>> {
         // Create default admin if no users exist
         let mut users = USERS.write().await;
         if users.is_empty() {
             let default_admin = User {
                 username: "admin".to_string(),
-                password_hash: Self::hash_password("admin123")?,
+                password_hash: Self::hash_password("admin123").map_err(|e| e.to_string())?,
                 role: UserRole::Admin,
                 created_at: Utc::now().timestamp(),
                 last_login: None,
@@ -70,14 +77,15 @@ impl UserManager {
         Ok(())
     }
 
-    fn hash_password(password: &str) -> Result<String, argon2::Error> {
-        let salt: [u8; SALT_LENGTH] = rand::thread_rng().gen();
-        let config = Config::default();
-        argon2::hash_encoded(password.as_bytes(), &salt, &config)
+    fn hash_password(password: &str) -> Result<String, argon2::password_hash::Error> {
+        let salt = SaltString::generate(&mut OsRng);
+        let argon2 = Argon2::default();
+        Ok(argon2.hash_password(password.as_bytes(), &salt)?.to_string())
     }
 
-    fn verify_password(hash: &str, password: &str) -> Result<bool, argon2::Error> {
-        argon2::verify_encoded(hash, password.as_bytes())
+    fn verify_password(hash: &str, password: &str) -> Result<bool, argon2::password_hash::Error> {
+        let parsed_hash = PasswordHash::new(hash)?;
+        Ok(Argon2::default().verify_password(password.as_bytes(), &parsed_hash).is_ok())
     }
 
     pub async fn authenticate(username: &str, password: &str) -> Option<String> {

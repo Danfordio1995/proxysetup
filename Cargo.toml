@@ -23,5 +23,5 @@ chrono = "0.4"
 regex = "1.5"
 ipnet = "2.7"
 jsonwebtoken = "8.1"
-argon2 = "0.4"
+argon2 = { version = "0.4", features = ["std", "password-hash"] }
 rand = "0.8" 
