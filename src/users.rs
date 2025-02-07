@@ -73,6 +73,7 @@ impl UserManager {
             };
             users.insert("admin".to_string(), default_admin);
             Self::save_users(&users)?;
+            log::info!("Created default admin user");
         }
         Ok(())
     }
@@ -104,22 +105,41 @@ impl UserManager {
                     exp: expiration as usize,
                 };
 
-                return encode(
+                match encode(
                     &Header::default(),
                     &claims,
                     &EncodingKey::from_secret(JWT_SECRET),
-                ).ok();
+                ) {
+                    Ok(token) => {
+                        log::info!("User {} authenticated successfully", username);
+                        return Some(token);
+                    }
+                    Err(e) => {
+                        log::error!("Failed to generate token: {}", e);
+                        return None;
+                    }
+                }
             }
         }
+        log::warn!("Authentication failed for user: {}", username);
         None
     }
 
     pub async fn verify_token(token: &str) -> Option<Claims> {
-        decode::<Claims>(
+        match decode::<Claims>(
             token,
             &DecodingKey::from_secret(JWT_SECRET),
             &Validation::default(),
-        ).ok().map(|token_data| token_data.claims)
+        ) {
+            Ok(token_data) => {
+                log::debug!("Token verified successfully");
+                Some(token_data.claims)
+            }
+            Err(e) => {
+                log::warn!("Token verification failed: {}", e);
+                None
+            }
+        }
     }
 
     pub async fn create_user(request: CreateUserRequest, creator_role: &UserRole) -> Result<(), String> {

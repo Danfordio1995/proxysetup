@@ -72,20 +72,18 @@
                     body: JSON.stringify({ username, password })
                 });
 
-                if (response.ok) {
-                    const data = await response.json();
-                    if (data.token) {
-                        localStorage.setItem('token', data.token);
-                        window.location.href = '/admin';
-                    } else {
-                        errorMessage.textContent = 'Invalid response from server';
-                        errorMessage.classList.remove('hidden');
-                    }
+                const data = await response.json();
+                
+                if (response.ok && data.token) {
+                    localStorage.setItem('token', data.token);
+                    window.location.href = '/admin';
                 } else {
+                    errorMessage.textContent = data.message || 'Invalid username or password';
                     errorMessage.classList.remove('hidden');
                 }
             } catch (error) {
                 console.error('Login failed:', error);
+                errorMessage.textContent = 'Failed to connect to server';
                 errorMessage.classList.remove('hidden');
             }
         });
