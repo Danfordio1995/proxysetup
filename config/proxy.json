@@ -3,7 +3,7 @@
     "blocked_domains": ["*.malicious.com"],
     "allowed_ips": ["10.0.0.0/8"],
     "blocked_ips": ["1.2.3.4/32"],
-    "allowed_domains": []  
+    "allowed_domains": []
   },
   "cache": {
     "memory_size": 10240,
@@ -12,8 +12,8 @@
     "serve_stale": true
   },
   "tls": {
-    "cert_path": "proxy_project/certs/cert.pem",
-    "key_path": "proxy_project/certs/key.pem",
+    "cert_path": "/opt/proxy_project/certs/cert.pem",
+    "key_path": "/opt/proxy_project/certs/key.pem",
     "enable_tls13": true,
     "session_tickets": true
   },
