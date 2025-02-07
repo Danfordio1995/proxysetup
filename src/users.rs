@@ -11,13 +11,20 @@ use std::fs;
 const JWT_SECRET: &[u8] = b"your-secret-key"; // In production, use environment variables
 const SALT_LENGTH: usize = 32;
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum UserRole {
     Admin,
     ViewOnly,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Claims {
+    pub sub: String,
+    pub role: UserRole,
+    pub exp: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct User {
     pub username: String,
     pub password_hash: String,
@@ -37,13 +44,6 @@ pub struct CreateUserRequest {
     pub username: String,
     pub password: String,
     pub role: UserRole,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Claims {
-    pub sub: String,
-    pub role: UserRole,
-    pub exp: i64,
 }
 
 lazy_static::lazy_static! {
@@ -93,7 +93,7 @@ impl UserManager {
                 let claims = Claims {
                     sub: username.to_string(),
                     role: user.role.clone(),
-                    exp: expiration,
+                    exp: expiration as usize,
                 };
 
                 return encode(

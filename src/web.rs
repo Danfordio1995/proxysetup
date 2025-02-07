@@ -7,19 +7,19 @@ use serde::{Deserialize, Serialize};
 use crate::config_manager::{METRICS};
 use futures_util::{StreamExt, SinkExt};
 use prometheus::{Encoder, TextEncoder};
-use warp::reply::WithStatus;
+use warp::reply::{WithStatus, Reply};
 use warp::http::StatusCode;
 use warp::Rejection;
 use std::convert::Infallible;
 use crate::auth::{with_auth, handle_rejection};
 use crate::users::{UserRole, Claims};
-use crate::acl::{self, AclConfig};
+use crate::acl::{self, AclConfig as AclConfigFromAcl};
 use serde_json::json;
 
 // Add configuration structures
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct ProxyConfig {
-    pub acl: AclConfig,
+    pub acl: AclConfigFromAcl,
     pub cache: CacheConfig,
     pub tls: TlsConfig,
     pub rate_limit: RateLimitConfig,
@@ -52,6 +52,26 @@ pub struct RateLimitConfig {
     pub requests_per_second: u32,
     pub burst_size: u32,
 }
+
+// Request/Response types
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DomainRequest {
+    pub domain: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IpRequest {
+    pub ip: String,
+}
+
+#[derive(Debug)]
+pub enum AuthError {
+    InvalidToken,
+    InvalidCredentials,
+    InsufficientPermissions,
+}
+
+impl warp::reject::Reject for AuthError {}
 
 // Global configuration state
 lazy_static! {
@@ -224,8 +244,7 @@ pub async fn run_web_interface() {
         .boxed();
 
     // ACL Management Routes
-    let acl_routes = login_route()
-        .or(get_acl_route())
+    let acl_routes = get_acl_route()
         .or(add_blocked_domain_route())
         .or(remove_blocked_domain_route())
         .or(add_blocked_ip_route())
