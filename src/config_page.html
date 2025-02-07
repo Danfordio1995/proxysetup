@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Proxy Configuration</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <style>
+        body { padding: 20px; }
+        .fade-in { animation: fadeIn 1s ease-out; }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        .config-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border-radius: 8px;
+            background-color: #f8f9fa;
+        }
+        .save-indicator {
+            display: none;
+            color: #28a745;
+            margin-left: 10px;
+        }
+    </style>
+</head>
+<body class="fade-in">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <a class="navbar-brand" href="#">Proxy Admin</a>
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav">
+                <li class="nav-item">
+                    <a class="nav-link" href="/admin">Dashboard</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="/metrics">Metrics</a>
+                </li>
+                <li class="nav-item active">
+                    <a class="nav-link" href="/config">Configuration</a>
+                </li>
+            </ul>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <h1>Proxy Configuration</h1>
+        <p>Manage your proxy server settings below. Changes take effect immediately.</p>
+
+        <!-- ACL Configuration -->
+        <div class="config-section">
+            <h3>Access Control Lists (ACL)</h3>
+            <form id="aclForm">
+                <div class="form-group">
+                    <label>Blocked Domains (one per line)</label>
+                    <textarea class="form-control" rows="4" id="blockedDomains" 
+                        placeholder="example: *.malicious.com">*.malicious.com
+*.suspicious.net
+badactor.org</textarea>
+                </div>
+                <div class="form-group">
+                    <label>Allowed IP Ranges (CIDR notation)</label>
+                    <textarea class="form-control" rows="4" id="allowedIPs" 
+                        placeholder="example: 192.168.1.0/24">10.0.0.0/8
+172.16.0.0/12
+192.168.0.0/16</textarea>
+                </div>
+                <button type="submit" class="btn btn-primary">Save ACL Rules</button>
+                <span class="save-indicator" id="aclSaveIndicator">✓ Saved</span>
+            </form>
+        </div>
+
+        <!-- Cache Configuration -->
+        <div class="config-section">
+            <h3>Caching Policies</h3>
+            <form id="cacheForm">
+                <div class="form-group">
+                    <label>Memory Cache Size (MB)</label>
+                    <input type="number" class="form-control" id="memoryCacheSize" value="10240">
+                </div>
+                <div class="form-group">
+                    <label>Disk Cache Size (MB)</label>
+                    <input type="number" class="form-control" id="diskCacheSize" value="10240">
+                </div>
+                <div class="form-group">
+                    <label>Cache TTL (seconds)</label>
+                    <input type="number" class="form-control" id="cacheTTL" value="3600">
+                </div>
+                <div class="form-check mb-3">
+                    <input type="checkbox" class="form-check-input" id="serveStale" checked>
+                    <label class="form-check-label">Serve stale content during origin failures</label>
+                </div>
+                <button type="submit" class="btn btn-primary">Save Cache Settings</button>
+                <span class="save-indicator" id="cacheSaveIndicator">✓ Saved</span>
+            </form>
+        </div>
+
+        <!-- TLS Configuration -->
+        <div class="config-section">
+            <h3>TLS Settings</h3>
+            <form id="tlsForm">
+                <div class="form-group">
+                    <label>Certificate Path</label>
+                    <input type="text" class="form-control" id="certPath" value="/opt/proxy_project/certs/cert.pem">
+                </div>
+                <div class="form-group">
+                    <label>Private Key Path</label>
+                    <input type="text" class="form-control" id="keyPath" value="/opt/proxy_project/certs/key.pem">
+                </div>
+                <div class="form-check mb-3">
+                    <input type="checkbox" class="form-check-input" id="enableTLS13" checked>
+                    <label class="form-check-label">Enable TLS 1.3</label>
+                </div>
+                <div class="form-check mb-3">
+                    <input type="checkbox" class="form-check-input" id="sessionTickets" checked>
+                    <label class="form-check-label">Enable session tickets</label>
+                </div>
+                <button type="submit" class="btn btn-primary">Save TLS Settings</button>
+                <span class="save-indicator" id="tlsSaveIndicator">✓ Saved</span>
+            </form>
+        </div>
+
+        <!-- Rate Limiting -->
+        <div class="config-section">
+            <h3>Rate Limiting</h3>
+            <form id="rateForm">
+                <div class="form-group">
+                    <label>Requests per Second (per IP)</label>
+                    <input type="number" class="form-control" id="rateLimit" value="100">
+                </div>
+                <div class="form-group">
+                    <label>Burst Size</label>
+                    <input type="number" class="form-control" id="burstSize" value="200">
+                </div>
+                <button type="submit" class="btn btn-primary">Save Rate Limits</button>
+                <span class="save-indicator" id="rateSaveIndicator">✓ Saved</span>
+            </form>
+        </div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        $(document).ready(function() {
+            // Handle form submissions
+            const forms = ['aclForm', 'cacheForm', 'tlsForm', 'rateForm'];
+            forms.forEach(formId => {
+                $(`#${formId}`).on('submit', function(e) {
+                    e.preventDefault();
+                    
+                    // Collect form data
+                    const formData = {};
+                    $(this).find('input, textarea').each(function() {
+                        formData[this.id] = this.type === 'checkbox' ? this.checked : this.value;
+                    });
+
+                    // Prepare the configuration update
+                    const config = {
+                        acl: {
+                            blocked_domains: $('#blockedDomains').val().split('\n'),
+                            allowed_ips: $('#allowedIPs').val().split('\n'),
+                        },
+                        cache: {
+                            memory_size: parseInt($('#memoryCacheSize').val()),
+                            disk_size: parseInt($('#diskCacheSize').val()),
+                            ttl: parseInt($('#cacheTTL').val()),
+                            serve_stale: $('#serveStale').is(':checked'),
+                        },
+                        tls: {
+                            cert_path: $('#certPath').val(),
+                            key_path: $('#keyPath').val(),
+                            enable_tls13: $('#enableTLS13').is(':checked'),
+                            session_tickets: $('#sessionTickets').is(':checked'),
+                        },
+                        rate_limit: {
+                            requests_per_second: parseInt($('#rateLimit').val()),
+                            burst_size: parseInt($('#burstSize').val()),
+                        },
+                    };
+
+                    // Show save indicator
+                    const indicator = $(`#${formId.replace('Form', 'SaveIndicator')}`);
+                    
+                    // Send configuration to backend
+                    fetch('/api/config', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(config),
+                    })
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error('Failed to save configuration');
+                        }
+                        indicator.fadeIn();
+                        setTimeout(() => indicator.fadeOut(), 2000);
+                    })
+                    .catch(error => {
+                        alert('Error saving configuration: ' + error.message);
+                    });
+                });
+            });
+
+            // Load initial configuration
+            fetch('/api/config')
+                .then(response => response.json())
+                .then(config => {
+                    $('#blockedDomains').val(config.acl.blocked_domains.join('\n'));
+                    $('#allowedIPs').val(config.acl.allowed_ips.join('\n'));
+                    $('#memoryCacheSize').val(config.cache.memory_size);
+                    $('#diskCacheSize').val(config.cache.disk_size);
+                    $('#cacheTTL').val(config.cache.ttl);
+                    $('#serveStale').prop('checked', config.cache.serve_stale);
+                    $('#certPath').val(config.tls.cert_path);
+                    $('#keyPath').val(config.tls.key_path);
+                    $('#enableTLS13').prop('checked', config.tls.enable_tls13);
+                    $('#sessionTickets').prop('checked', config.tls.session_tickets);
+                    $('#rateLimit').val(config.rate_limit.requests_per_second);
+                    $('#burstSize').val(config.rate_limit.burst_size);
+                })
+                .catch(error => {
+                    console.error('Error loading configuration:', error);
+                });
+        });
+    </script>
+</body>
+</html> 

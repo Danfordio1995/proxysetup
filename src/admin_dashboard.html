@@ -97,11 +97,39 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.2/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         $(document).ready(function() {
+            // Connect to WebSocket for real-time metrics
+            const ws = new WebSocket(`ws://${window.location.host}/ws/metrics`);
+            
+            ws.onmessage = function(event) {
+                const metrics = JSON.parse(event.data);
+                $('#requestCount').text(metrics.total_requests);
+                $('#cacheHitRate').text(
+                    Math.round(
+                        (metrics.cache_hits / (metrics.cache_hits + metrics.cache_misses)) * 100
+                    ) + '%'
+                );
+                $('#throttledRequests').text(metrics.throttled_requests);
+                $('#activeConnections').text(metrics.active_connections);
+            };
+
+            // Handle form submissions
+            const forms = ['aclForm', 'cacheForm', 'tlsForm', 'rateForm'];
+
             $("#configForm").on("submit", function(e) {
                 e.preventDefault();
                 alert("Settings have been saved!");
             });
 
+            // Simulated metrics update (replace with real metrics in production)
+            setInterval(function() {
+                $("#requestCount").text(Math.floor(Math.random() * 10000));
+                $("#cacheHitRate").text(Math.floor(Math.random() * 100) + "%");
+                $("#throttledRequests").text(Math.floor(Math.random() * 100));
+            }, 2000);
+        });
+    </script>
+</body>
+</html> 
             // Simulated metrics update (replace with real metrics in production)
             setInterval(function() {
                 $("#requestCount").text(Math.floor(Math.random() * 10000));

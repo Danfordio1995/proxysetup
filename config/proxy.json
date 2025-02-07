@@ -1,0 +1,22 @@
+{
+  "acl": {
+    "blocked_domains": ["*.malicious.com"],
+    "allowed_ips": ["10.0.0.0/8"]
+  },
+  "cache": {
+    "memory_size": 10240,
+    "disk_size": 10240,
+    "ttl": 3600,
+    "serve_stale": true
+  },
+  "tls": {
+    "cert_path": "/opt/proxy_project/certs/cert.pem",
+    "key_path": "/opt/proxy_project/certs/key.pem",
+    "enable_tls13": true,
+    "session_tickets": true
+  },
+  "rate_limit": {
+    "requests_per_second": 100,
+    "burst_size": 200
+  }
+}
