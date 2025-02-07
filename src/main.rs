@@ -1,6 +1,3 @@
-use crate::proxy;
-use crate::web;
-
 mod acl;
 mod auth;
 mod cache;
