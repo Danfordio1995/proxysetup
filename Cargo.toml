@@ -24,4 +24,5 @@ regex = "1.5"
 ipnet = "2.7"
 jsonwebtoken = "8.1"
 argon2 = { version = "0.4", features = ["std", "password-hash"] }
-rand = "0.8" 
+rand = "0.8"
+dotenv = "0.15" 

@@ -18,7 +18,7 @@ lazy_static! {
 
 /// Tunnels data between an upgraded client connection and a backend TCP connection.
 async fn tunnel(
-    mut client_conn: hyper::upgrade::Upgraded,
+    client_conn: hyper::upgrade::Upgraded,
     addr: String,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut server_conn = TcpStream::connect(addr).await?;

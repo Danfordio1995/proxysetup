@@ -5,10 +5,9 @@ use std::convert::Infallible;
 use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};
 
 pub async fn auth_middleware(token: String) -> Result<Claims, Rejection> {
-    if let Some(claims) = UserManager::verify_token(&token).await {
-        Ok(claims)
-    } else {
-        Err(warp::reject::custom(AuthError::InvalidToken))
+    match UserManager::verify_token(&token).await {
+        Ok(claims) => Ok(claims),
+        Err(_) => Err(warp::reject::custom(AuthError::InvalidToken)),
     }
 }
 
@@ -28,8 +27,8 @@ pub fn with_auth() -> impl Filter<Extract = (Claims,), Error = Rejection> + Clon
                 Some(header) if header.starts_with("Bearer ") => {
                     let token = header.trim_start_matches("Bearer ").trim();
                     match UserManager::verify_token(token).await {
-                        Some(claims) => Ok(claims),
-                        None => Err(warp::reject::custom(AuthError::InvalidToken))
+                        Ok(claims) => Ok(claims),
+                        Err(_) => Err(warp::reject::custom(AuthError::InvalidToken))
                     }
                 }
                 _ => Err(warp::reject::custom(AuthError::InvalidCredentials))
@@ -38,13 +37,15 @@ pub fn with_auth() -> impl Filter<Extract = (Claims,), Error = Rejection> + Clon
 }
 
 pub async fn handle_login(login: LoginRequest) -> Result<impl Reply, Rejection> {
-    if let Some(token) = UserManager::authenticate(&login.username, &login.password).await {
-        Ok(warp::reply::json(&json!({
+    match UserManager::authenticate(&login.username, &login.password).await {
+        Ok(token) => Ok(warp::reply::json(&json!({
             "token": token,
             "message": "Login successful"
-        })))
-    } else {
-        Err(warp::reject::custom(AuthError::InvalidCredentials))
+        }))),
+        Err(e) => {
+            log::warn!("Login failed for user {}: {}", login.username, e);
+            Err(warp::reject::custom(AuthError::InvalidCredentials))
+        }
     }
 }
 
@@ -63,10 +64,9 @@ pub async fn handle_create_user(
 }
 
 pub async fn handle_get_users(claims: Claims) -> Result<impl Reply, Rejection> {
-    if let Some(users) = UserManager::get_users(&claims.role).await {
-        Ok(warp::reply::json(&users))
-    } else {
-        Err(warp::reject::custom(AuthError::InsufficientPermissions))
+    match UserManager::get_users(&claims.role).await {
+        Some(users) => Ok(warp::reply::json(&users)),
+        None => Err(warp::reject::custom(AuthError::InsufficientPermissions))
     }
 }
 
