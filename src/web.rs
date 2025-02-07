@@ -138,6 +138,16 @@ pub async fn run_web_interface() {
         .and(warp::body::json())
         .and_then(crate::auth::handle_login);
 
+    // Verify token endpoint
+    let verify_api = warp::path!("api" / "verify")
+        .and(with_auth())
+        .map(|claims: Claims| {
+            warp::reply::json(&json!({
+                "status": "valid",
+                "role": claims.role
+            }))
+        });
+
     // Admin dashboard endpoint (protected)
     let admin = warp::path("admin")
         .and(warp::get())
@@ -253,6 +263,7 @@ pub async fn run_web_interface() {
     let routes = root
         .or(login_page)
         .or(login_api)
+        .or(verify_api)
         .or(admin)
         .or(metrics)
         .or(config)
