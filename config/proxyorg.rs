@@ -6,7 +6,6 @@ use tokio::sync::Mutex;
 use std::net::SocketAddr;
 use crate::{rate_limiter::RateLimiter, cache::cache_get, acl::check_acl};
 use std::error::Error as StdError;
-use std::io; // Import std::io for error wrapping
 
 static BACKEND: &str = "http://127.0.0.1:8080"; // Backend server address (adjust as needed)
 
@@ -60,36 +59,33 @@ async fn handle_request(req: Request<Body>, remote_addr: SocketAddr) -> Result<R
 
     let client = Client::new();
 
-    // Build new URI based on the BACKEND address.
-    // First, parse the backend address.
+    // Build new URI based on the BACKEND address
+    let mut parts = req.uri().clone().into_parts();
     let backend_uri: Uri = BACKEND.parse().map_err(|e| {
         log::error!("Failed to parse backend URI: {}", e);
-        // Wrap the error in an io::Error so that hyper::Error can be created from it.
-        hyper::Error::from(io::Error::new(io::ErrorKind::Other, e))
+        hyper::Error::from(e)
     })?;
     
-    // Update the incoming request URI to point to the backend.
-    let mut parts = req.uri().clone().into_parts();
     parts.scheme = backend_uri.scheme().cloned();
     parts.authority = backend_uri.authority().cloned();
     
     let new_uri = Uri::from_parts(parts).map_err(|e| {
         log::error!("Failed to build URI: {}", e);
-        hyper::Error::from(io::Error::new(io::ErrorKind::Other, e))
+        hyper::Error::from(Box::new(e) as Box<dyn StdError + Send + Sync>)
     })?;
 
-    // Rebuild the request with the updated URI.
+    // Rebuild the request with the updated URI
     let (parts, body) = req.into_parts();
     let mut req_builder = Request::builder()
         .method(&parts.method)
         .uri(new_uri);
 
-    // Copy all headers from the original request.
+    // Copy all headers from the original request
     for (key, value) in parts.headers.iter() {
         req_builder = req_builder.header(key, value);
     }
 
-    // Add X-Forwarded headers.
+    // Add X-Forwarded headers
     req_builder = req_builder
         .header("X-Forwarded-For", remote_addr.ip().to_string())
         .header("X-Forwarded-Proto", "http")
@@ -97,13 +93,13 @@ async fn handle_request(req: Request<Body>, remote_addr: SocketAddr) -> Result<R
 
     let proxy_req = req_builder.body(body).map_err(|e| {
         log::error!("Failed to build proxy request: {}", e);
-        hyper::Error::from(io::Error::new(io::ErrorKind::Other, e))
+        hyper::Error::from(Box::new(e) as Box<dyn StdError + Send + Sync>)
     })?;
 
-    // Forward the request to the backend and return the response.
+    // Forward the request to the backend and return the response
     let resp = client.request(proxy_req).await?;
     
-    // Log response status.
+    // Log response status
     log::info!("Backend responded with status {} for {} {}", 
         resp.status(), 
         parts.method, 
@@ -132,4 +128,4 @@ pub async fn run_proxy() {
     if let Err(e) = server.await {
         log::error!("Server error: {}", e);
     }
-}
+} 
