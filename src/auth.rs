@@ -3,11 +3,18 @@ use crate::users::{UserManager, LoginRequest, CreateUserRequest, Claims};
 use serde_json::json;
 use std::convert::Infallible;
 use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};
+use std::env;
 
 pub async fn auth_middleware(token: String) -> Result<Claims, Rejection> {
     match UserManager::verify_token(&token).await {
-        Ok(claims) => Ok(claims),
-        Err(_) => Err(warp::reject::custom(AuthError::InvalidToken)),
+        Ok(claims) => {
+            log::debug!("✅ Token verified in middleware for user: {}", claims.sub);
+            Ok(claims)
+        }
+        Err(e) => {
+            log::warn!("❌ Token verification failed in middleware: {}", e);
+            Err(warp::reject::custom(AuthError::InvalidToken))
+        }
     }
 }
 
@@ -16,6 +23,8 @@ pub enum AuthError {
     InvalidToken,
     InvalidCredentials,
     InsufficientPermissions,
+    RateLimitExceeded(String),
+    InternalError(String),
 }
 
 impl warp::reject::Reject for AuthError {}
@@ -27,24 +36,43 @@ pub fn with_auth() -> impl Filter<Extract = (Claims,), Error = Rejection> + Clon
                 Some(header) if header.starts_with("Bearer ") => {
                     let token = header.trim_start_matches("Bearer ").trim();
                     match UserManager::verify_token(token).await {
-                        Ok(claims) => Ok(claims),
-                        Err(_) => Err(warp::reject::custom(AuthError::InvalidToken))
+                        Ok(claims) => {
+                            log::debug!("✅ Token verified in filter for user: {}", claims.sub);
+                            Ok(claims)
+                        }
+                        Err(e) => {
+                            log::warn!("❌ Token verification failed in filter: {}", e);
+                            Err(warp::reject::custom(AuthError::InvalidToken))
+                        }
                     }
                 }
-                _ => Err(warp::reject::custom(AuthError::InvalidCredentials))
+                _ => {
+                    log::warn!("❌ Missing or invalid Authorization header");
+                    Err(warp::reject::custom(AuthError::InvalidCredentials))
+                }
             }
         })
 }
 
 pub async fn handle_login(login: LoginRequest) -> Result<impl Reply, Rejection> {
+    log::info!("👤 Login attempt for user: {}", login.username);
+    
     match UserManager::authenticate(&login.username, &login.password).await {
-        Ok(token) => Ok(warp::reply::json(&json!({
-            "token": token,
-            "message": "Login successful"
-        }))),
+        Ok(token) => {
+            log::info!("✅ Login successful for user: {}", login.username);
+            Ok(warp::reply::json(&json!({
+                "token": token,
+                "message": "Login successful"
+            })))
+        }
         Err(e) => {
-            log::warn!("Login failed for user {}: {}", login.username, e);
-            Err(warp::reject::custom(AuthError::InvalidCredentials))
+            if e.contains("temporarily locked") {
+                log::warn!("🔒 Rate limit exceeded for user {}: {}", login.username, e);
+                Err(warp::reject::custom(AuthError::RateLimitExceeded(e)))
+            } else {
+                log::warn!("❌ Login failed for user {}: {}", login.username, e);
+                Err(warp::reject::custom(AuthError::InvalidCredentials))
+            }
         }
     }
 }
@@ -53,20 +81,36 @@ pub async fn handle_create_user(
     claims: Claims,
     create_request: CreateUserRequest,
 ) -> Result<impl Reply, Rejection> {
+    log::info!("👥 User creation attempt for: {}", create_request.username);
+    
     match UserManager::create_user(create_request, &claims.role).await {
-        Ok(()) => Ok(warp::reply::json(&json!({
-            "message": "User created successfully"
-        }))),
-        Err(e) => Ok(warp::reply::json(&json!({
-            "error": e
-        })))
+        Ok(()) => {
+            log::info!("✅ User created successfully");
+            Ok(warp::reply::json(&json!({
+                "message": "User created successfully"
+            })))
+        }
+        Err(e) => {
+            log::error!("❌ User creation failed: {}", e);
+            Ok(warp::reply::json(&json!({
+                "error": e
+            })))
+        }
     }
 }
 
 pub async fn handle_get_users(claims: Claims) -> Result<impl Reply, Rejection> {
+    log::debug!("👥 Fetching users list");
+    
     match UserManager::get_users(&claims.role).await {
-        Some(users) => Ok(warp::reply::json(&users)),
-        None => Err(warp::reject::custom(AuthError::InsufficientPermissions))
+        Some(users) => {
+            log::debug!("✅ Users list retrieved successfully");
+            Ok(warp::reply::json(&users))
+        }
+        None => {
+            log::warn!("❌ Insufficient permissions to list users");
+            Err(warp::reject::custom(AuthError::InsufficientPermissions))
+        }
     }
 }
 
@@ -74,13 +118,21 @@ pub async fn handle_delete_user(
     claims: Claims,
     username: String,
 ) -> Result<impl Reply, Rejection> {
+    log::info!("🗑️ User deletion attempt for: {}", username);
+    
     match UserManager::delete_user(&username, &claims.role).await {
-        Ok(()) => Ok(warp::reply::json(&json!({
-            "message": "User deleted successfully"
-        }))),
-        Err(e) => Ok(warp::reply::json(&json!({
-            "error": e
-        })))
+        Ok(()) => {
+            log::info!("✅ User {} deleted successfully", username);
+            Ok(warp::reply::json(&json!({
+                "message": "User deleted successfully"
+            })))
+        }
+        Err(e) => {
+            log::error!("❌ User deletion failed: {}", e);
+            Ok(warp::reply::json(&json!({
+                "error": e
+            })))
+        }
     }
 }
 
@@ -96,15 +148,23 @@ pub async fn handle_rejection(err: Rejection) -> Result<impl warp::Reply, Infall
         match e {
             AuthError::InvalidToken => {
                 code = warp::http::StatusCode::UNAUTHORIZED;
-                message = "Invalid token";
+                message = "Invalid or expired token";
             }
             AuthError::InvalidCredentials => {
                 code = warp::http::StatusCode::UNAUTHORIZED;
-                message = "Invalid credentials";
+                message = "Invalid username or password";
             }
             AuthError::InsufficientPermissions => {
                 code = warp::http::StatusCode::FORBIDDEN;
                 message = "Insufficient permissions";
+            }
+            AuthError::RateLimitExceeded(msg) => {
+                code = warp::http::StatusCode::TOO_MANY_REQUESTS;
+                message = msg;
+            }
+            AuthError::InternalError(msg) => {
+                code = warp::http::StatusCode::INTERNAL_SERVER_ERROR;
+                message = msg;
             }
         }
     } else if let Some(_) = err.find::<warp::reject::MethodNotAllowed>() {

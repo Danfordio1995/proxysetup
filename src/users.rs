@@ -7,7 +7,7 @@ use argon2::{
         rand_core::OsRng,
         PasswordHash, PasswordHasher, PasswordVerifier, SaltString
     },
-    Argon2
+    Argon2, Params
 };
 use rand::Rng;
 use jsonwebtoken::{encode, decode, Header, Validation, EncodingKey, DecodingKey};
@@ -96,13 +96,22 @@ impl UserManager {
 
     fn hash_password(password: &str) -> Result<String, argon2::password_hash::Error> {
         let salt = SaltString::generate(&mut OsRng);
-        let argon2 = Argon2::default();
+        let argon2 = Argon2::new(
+            argon2::Algorithm::Argon2id,
+            argon2::Version::V0x13,
+            Params::new(65536, 3, 4, None).unwrap()
+        );
         Ok(argon2.hash_password(password.as_bytes(), &salt)?.to_string())
     }
 
     fn verify_password(hash: &str, password: &str) -> Result<bool, argon2::password_hash::Error> {
         let parsed_hash = PasswordHash::new(hash)?;
-        Ok(Argon2::default().verify_password(password.as_bytes(), &parsed_hash).is_ok())
+        let argon2 = Argon2::default();
+        match argon2.verify_password(password.as_bytes(), &parsed_hash) {
+            Ok(()) => Ok(true),
+            Err(argon2::password_hash::Error::Password) => Ok(false),
+            Err(e) => Err(e),
+        }
     }
 
     async fn check_rate_limit(username: &str) -> Result<(), String> {
@@ -149,51 +158,61 @@ impl UserManager {
 
         let users = USERS.read().await;
         if let Some(user) = users.get(username) {
-            if Self::verify_password(&user.password_hash, password).unwrap_or(false) {
-                // Reset login attempts on successful login
-                let mut attempts = LOGIN_ATTEMPTS.write().await;
-                attempts.remove(username);
+            match Self::verify_password(&user.password_hash, password) {
+                Ok(true) => {
+                    // Reset login attempts on successful login
+                    let mut attempts = LOGIN_ATTEMPTS.write().await;
+                    attempts.remove(username);
 
-                // Generate JWT token
-                let jwt_secret = env::var("JWT_SECRET")
-                    .expect("JWT_SECRET must be set in environment");
-                let expiration_hours: i64 = env::var("JWT_EXPIRATION_HOURS")
-                    .unwrap_or_else(|_| "24".to_string())
-                    .parse()
-                    .unwrap_or(24);
+                    // Generate JWT token
+                    let jwt_secret = env::var("JWT_SECRET")
+                        .expect("JWT_SECRET must be set in environment");
+                    let expiration_hours: i64 = env::var("JWT_EXPIRATION_HOURS")
+                        .unwrap_or_else(|_| "24".to_string())
+                        .parse()
+                        .unwrap_or(24);
 
-                let now = Utc::now();
-                let exp = now
-                    .checked_add_signed(Duration::hours(expiration_hours))
-                    .unwrap()
-                    .timestamp() as usize;
+                    let now = Utc::now();
+                    let exp = now
+                        .checked_add_signed(Duration::hours(expiration_hours))
+                        .unwrap()
+                        .timestamp() as usize;
 
-                let claims = Claims {
-                    sub: username.to_string(),
-                    role: user.role.clone(),
-                    exp,
-                    iat: now.timestamp() as usize,
-                };
+                    let claims = Claims {
+                        sub: username.to_string(),
+                        role: user.role.clone(),
+                        exp,
+                        iat: now.timestamp() as usize,
+                    };
 
-                match encode(
-                    &Header::default(),
-                    &claims,
-                    &EncodingKey::from_secret(jwt_secret.as_bytes()),
-                ) {
-                    Ok(token) => {
-                        log::info!("User {} authenticated successfully", username);
-                        return Ok(token);
-                    }
-                    Err(e) => {
-                        log::error!("Failed to generate token: {}", e);
-                        return Err("Internal server error".to_string());
+                    match encode(
+                        &Header::default(),
+                        &claims,
+                        &EncodingKey::from_secret(jwt_secret.as_bytes()),
+                    ) {
+                        Ok(token) => {
+                            log::info!("✅ User {} authenticated successfully", username);
+                            Ok(token)
+                        }
+                        Err(e) => {
+                            log::error!("Failed to generate token: {}", e);
+                            Err("Internal server error".to_string())
+                        }
                     }
                 }
+                Ok(false) => {
+                    log::warn!("❌ Invalid password for user: {}", username);
+                    Err("Invalid username or password".to_string())
+                }
+                Err(e) => {
+                    log::error!("Password verification error for user {}: {}", username, e);
+                    Err("Internal server error".to_string())
+                }
             }
+        } else {
+            log::warn!("❌ Authentication attempt for non-existent user: {}", username);
+            Err("Invalid username or password".to_string())
         }
-        
-        log::warn!("Authentication failed for user: {}", username);
-        Err("Invalid username or password".to_string())
     }
 
     pub async fn verify_token(token: &str) -> Result<Claims, String> {
@@ -214,11 +233,11 @@ impl UserManager {
                     return Err("Token has expired".to_string());
                 }
                 
-                log::debug!("Token verified successfully for user: {}", claims.sub);
+                log::debug!("✅ Token verified successfully for user: {}", claims.sub);
                 Ok(claims)
             }
             Err(e) => {
-                log::warn!("Token verification failed: {}", e);
+                log::warn!("❌ Token verification failed: {}", e);
                 Err("Invalid token".to_string())
             }
         }
