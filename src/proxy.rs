@@ -6,7 +6,6 @@ use tokio::sync::Mutex;
 use std::net::SocketAddr;
 use crate::{rate_limiter::RateLimiter, cache::cache_get, acl::check_acl};
 
-// The backend address is a constant.
 static BACKEND: &str = "http://127.0.0.1:8080";
 
 lazy_static! {
@@ -34,12 +33,13 @@ async fn handle_request(req: Request<Body>, remote_addr: SocketAddr) -> Result<R
         }
     }
 
-    // ACL check.
-    let host = req.uri().host().unwrap_or_default();
+    // Clone the host string to avoid borrowing issues when consuming `req` later.
+    let host = req.uri().host().unwrap_or_default().to_string();
     let path = req.uri().path();
     let ip = remote_addr.ip().to_string();
 
-    if !check_acl(host, Some(&ip), Some(path)).await {
+    // Enhanced ACL check with IP and path.
+    if !check_acl(&host, Some(&ip), Some(path)).await {
         log::warn!("Access denied for {}:{} from {}", host, path, ip);
         return Ok(Response::builder()
             .status(403)
@@ -47,10 +47,10 @@ async fn handle_request(req: Request<Body>, remote_addr: SocketAddr) -> Result<R
             .unwrap());
     }
 
-    // Cache check for GET requests.
+    // Check cache for GET requests.
     if req.method() == hyper::Method::GET {
-        if let Some(cached) = cache_get(req.uri().path()).await {
-            log::debug!("Cache hit for {}", req.uri().path());
+        if let Some(cached) = cache_get(path).await {
+            log::debug!("Cache hit for {}", path);
             return Ok(Response::builder()
                 .status(200)
                 .header("X-Cache", "HIT")
@@ -77,13 +77,13 @@ async fn handle_request(req: Request<Body>, remote_addr: SocketAddr) -> Result<R
         }
     };
 
-    // Rebuild the request with the new URI.
+    // Consume the request to get its parts and body.
     let (parts, body) = req.into_parts();
     let mut req_builder = Request::builder()
         .method(&parts.method)
         .uri(new_uri);
 
-    // Copy the headers from the original request.
+    // Copy headers from the original request.
     for (key, value) in parts.headers.iter() {
         req_builder = req_builder.header(key, value);
     }
@@ -107,8 +107,12 @@ async fn handle_request(req: Request<Body>, remote_addr: SocketAddr) -> Result<R
 
     // Forward the request to the backend.
     let resp = client.request(proxy_req).await?;
-    log::info!("Backend responded with status {} for {} {}",
-              resp.status(), parts.method, parts.uri);
+    log::info!(
+        "Backend responded with status {} for {} {}",
+        resp.status(),
+        parts.method,
+        parts.uri
+    );
     Ok(resp)
 }
 
@@ -131,4 +135,11 @@ pub async fn run_proxy() {
     if let Err(e) = server.await {
         log::error!("Server error: {}", e);
     }
+}
+
+#[tokio::main]
+async fn main() {
+    // Initialize logging; ensure you have env_logger as a dependency.
+    env_logger::init();
+    run_proxy().await;
 }
