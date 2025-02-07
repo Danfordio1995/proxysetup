@@ -119,10 +119,18 @@ impl Default for RateLimitConfig {
 
 /// Runs the web interface on port 9000, serving dashboard, metrics, configuration, and admin endpoints.
 pub async fn run_web_interface() {
-    // Dashboard endpoint (root)
+    // Serve static files
+    let login_page = warp::path("login")
+        .and(warp::get())
+        .map(|| {
+            warp::reply::html(include_str!("../static/login.html"))
+        });
+
+    // Root redirect to login
     let root = warp::path::end()
-        .map(|| "Proxy Dashboard - Welcome!")
-        .boxed();
+        .map(|| {
+            warp::redirect::temporary(warp::http::Uri::from_static("/login"))
+        });
 
     // Metrics endpoint exposes Prometheus-compatible metrics.
     let metrics = warp::path!("metrics")
@@ -251,8 +259,9 @@ pub async fn run_web_interface() {
         .with(warp::cors().allow_any_origin())
         .recover(handle_rejection);
 
-    // Combine routes with explicit type annotations
+    // Combine all routes
     let routes = root
+        .or(login_page)
         .or(metrics)
         .or(config)
         .or(admin)
@@ -263,7 +272,9 @@ pub async fn run_web_interface() {
         .or(ws_metrics)
         .or(acl_routes);
 
-    // Serve the web interface on port 9000.
+    println!("Web interface running on http://localhost:9000");
+    
+    // Serve the web interface on port 9000
     warp::serve(routes)
         .run(([0, 0, 0, 0], 9000))
         .await;
