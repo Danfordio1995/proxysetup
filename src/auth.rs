@@ -1,5 +1,5 @@
 use warp::{Filter, Rejection, Reply};
-use crate::users::{UserManager, LoginRequest, CreateUserRequest, UserRole, Claims};
+use crate::users::{UserManager, LoginRequest, CreateUserRequest, Claims};
 use serde_json::json;
 use std::convert::Infallible;
 use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};

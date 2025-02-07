@@ -88,8 +88,8 @@ async fn save_acl_config(config: &AclConfig) -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
-pub async fn load_acl_config() -> Result<(), Box<dyn std::error::Error>> {
-    if let Ok(contents) = fs::read_to_string("config/acl.json") {
+pub async fn load_acl_config(path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    if let Ok(contents) = fs::read_to_string(path) {
         let config: AclConfig = serde_json::from_str(&contents)?;
         update_acl_config(config).await;
     }
