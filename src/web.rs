@@ -132,9 +132,24 @@ pub async fn run_web_interface() {
             warp::redirect::temporary(warp::http::Uri::from_static("/login"))
         });
 
+    // Login API endpoint
+    let login_api = warp::path!("api" / "login")
+        .and(warp::post())
+        .and(warp::body::json())
+        .and_then(crate::auth::handle_login);
+
+    // Admin dashboard endpoint (protected)
+    let admin = warp::path("admin")
+        .and(warp::get())
+        .and(with_auth())
+        .map(|_claims: Claims| {
+            warp::reply::html(include_str!("../static/admin.html"))
+        });
+
     // Metrics endpoint exposes Prometheus-compatible metrics.
     let metrics = warp::path!("metrics")
-        .map(|| {
+        .and(with_auth()) // Protect metrics endpoint
+        .map(|_| {
             let encoder = TextEncoder::new();
             let metric_families = prometheus::gather();
             let mut buffer = Vec::new();
@@ -143,36 +158,10 @@ pub async fn run_web_interface() {
         })
         .boxed();
 
-    // Configuration endpoint stub.
+    // Configuration endpoint
     let config = warp::path("config")
-        .map(|| warp::reply::html(include_str!("config_page.html")))
-        .boxed();
-
-    // Admin dashboard endpoint: expects query parameters "user" and "pass".
-    let admin = warp::path("admin")
-        .and(warp::query::<HashMap<String, String>>())
-        .map(|params: HashMap<String, String>| {
-            let empty = String::new();
-            let user = params.get("user").unwrap_or(&empty);
-            let pass = params.get("pass").unwrap_or(&empty);
-            
-            if user == "admin" && pass == "password" {
-                warp::reply::with_status(
-                    warp::reply::html(include_str!("admin_dashboard.html")),
-                    StatusCode::OK
-                )
-            } else {
-                warp::reply::with_status(
-                    warp::reply::html("Unauthorized: Invalid credentials"),
-                    StatusCode::UNAUTHORIZED
-                )
-            }
-        })
-        .boxed();
-
-    // Admin login page: Provides instructions on the admin credentials.
-    let admin_login = warp::path!("admin" / "login")
-        .map(|| warp::reply::html(include_str!("admin_login.html")))
+        .and(with_auth()) // Protect config endpoint
+        .map(|_| warp::reply::html(include_str!("../static/config.html")))
         .boxed();
 
     // Add API endpoints for configuration
@@ -183,7 +172,8 @@ pub async fn run_web_interface() {
         let config_state = Arc::clone(&config_state);
         warp::path!("api" / "config")
             .and(warp::get())
-            .and_then(move || {
+            .and(with_auth())
+            .and_then(move |_| {
                 let config_state = Arc::clone(&config_state);
                 async move {
                     let config = config_state.read().await;
@@ -262,17 +252,28 @@ pub async fn run_web_interface() {
     // Combine all routes
     let routes = root
         .or(login_page)
+        .or(login_api)
+        .or(admin)
         .or(metrics)
         .or(config)
-        .or(admin)
-        .or(admin_login)
         .or(get_config)
         .or(update_config)
         .or(get_metrics)
         .or(ws_metrics)
-        .or(acl_routes);
+        .or(acl_routes)
+        .with(warp::cors::cors()
+            .allow_any_origin()
+            .allow_headers(vec!["content-type", "authorization"])
+            .allow_methods(vec!["GET", "POST", "DELETE"]));
 
     println!("Web interface running on http://localhost:9000");
+    println!("Default admin credentials: username='admin', password='admin123'");
+    
+    // Initialize the user system
+    if let Err(e) = crate::users::UserManager::init().await {
+        log::error!("Failed to initialize user system: {}", e);
+        return;
+    }
     
     // Serve the web interface on port 9000
     warp::serve(routes)
