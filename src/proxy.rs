@@ -10,14 +10,17 @@ use tokio::io::{AsyncRead, AsyncWrite, AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use std::sync::Arc;
 use std::time::Duration;
-use std::error::Error as StdError;
 
 lazy_static! {
     static ref CONFIG_MANAGER: ConfigManager = ConfigManager::new();
     static ref GLOBAL_RATE_LIMITER: Mutex<RateLimiter> = Mutex::new(RateLimiter::new(100.0, 100.0));
 }
 
-async fn tunnel(mut client_conn: hyper::upgrade::Upgraded, addr: String) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+/// Tunnels data between an upgraded client connection and a backend TCP connection.
+async fn tunnel(
+    mut client_conn: hyper::upgrade::Upgraded,
+    addr: String,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut server_conn = TcpStream::connect(addr).await?;
     
     let (mut client_read, mut client_write) = tokio::io::split(client_conn);
@@ -39,34 +42,20 @@ async fn tunnel(mut client_conn: hyper::upgrade::Upgraded, addr: String) -> Resu
     Ok(())
 }
 
-/// Creates a hyper::Error from a string message
-fn make_error<E: std::fmt::Display>(err: E) -> hyper::Error {
-    use std::error::Error as StdError;
-    #[derive(Debug)]
-    struct ProxyError(String);
-    
-    impl std::fmt::Display for ProxyError {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "{}", self.0)
-        }
-    }
-    
-    impl StdError for ProxyError {}
-    
-    hyper::Error::new_user_without_cause(ProxyError(err.to_string()))
-}
-
-/// Handles incoming HTTP requests and forwards them to the backend.
-async fn handle_request(req: Request<Body>, remote_addr: SocketAddr) -> Result<Response<Body>, hyper::Error> {
+/// Handles incoming HTTP requests and forwards them to the appropriate backend.
+async fn handle_request(
+    req: Request<Body>,
+    remote_addr: SocketAddr,
+) -> Result<Response<Body>, hyper::Error> {
     log::info!("Proxying request: {} {} from {}", req.method(), req.uri(), remote_addr);
 
-    // Get the host from the request
-    let host = req.uri().host().unwrap_or_default();
-    let path = req.uri().path();
+    // Convert the host and path into owned Strings to avoid borrowing issues.
+    let host = req.uri().host().unwrap_or_default().to_string();
+    let path = req.uri().path().to_string();
     let ip = remote_addr.ip().to_string();
 
-    // Enhanced ACL check with IP and path - do this before rate limiting
-    if !check_acl(host, Some(&ip), Some(path)).await {
+    // Enhanced ACL check with IP and path.
+    if !check_acl(&host, Some(&ip), Some(&path)).await {
         log::warn!("Access denied for {}:{} from {}", host, path, ip);
         return Ok(Response::builder()
             .status(403)
@@ -74,7 +63,7 @@ async fn handle_request(req: Request<Body>, remote_addr: SocketAddr) -> Result<R
             .unwrap());
     }
 
-    // Global rate limiting - only if ACL check passes
+    // Global rate limiting.
     {
         let mut limiter = GLOBAL_RATE_LIMITER.lock().await;
         if !limiter.allow().await {
@@ -87,9 +76,9 @@ async fn handle_request(req: Request<Body>, remote_addr: SocketAddr) -> Result<R
         }
     }
 
-    // Handle CONNECT method for HTTPS tunneling
+    // Handle CONNECT method for HTTPS tunneling.
     if req.method() == hyper::Method::CONNECT {
-        let addr = match req.uri().authority() {
+        let addr_str = match req.uri().authority() {
             Some(authority) => authority.to_string(),
             None => {
                 return Ok(Response::builder()
@@ -99,17 +88,17 @@ async fn handle_request(req: Request<Body>, remote_addr: SocketAddr) -> Result<R
             }
         };
 
-        // Create a response that will be upgraded
+        // Create a response that will be upgraded.
         let resp = Response::builder()
             .status(200)
             .body(Body::empty())
             .unwrap();
 
-        // Spawn a task to handle the tunnel
+        // Spawn a task to handle the tunnel.
         tokio::spawn(async move {
             match hyper::upgrade::on(req).await {
                 Ok(upgraded) => {
-                    if let Err(e) = tunnel(upgraded, addr).await {
+                    if let Err(e) = tunnel(upgraded, addr_str).await {
                         log::error!("Tunnel error: {}", e);
                     }
                 }
@@ -120,9 +109,9 @@ async fn handle_request(req: Request<Body>, remote_addr: SocketAddr) -> Result<R
         return Ok(resp);
     }
 
-    // Check cache for GET requests
+    // Check cache for GET requests.
     if req.method() == hyper::Method::GET {
-        if let Some(cached) = cache_get(path).await {
+        if let Some(cached) = cache_get(&path).await {
             log::debug!("Cache hit for {}", path);
             return Ok(Response::builder()
                 .status(200)
@@ -132,58 +121,80 @@ async fn handle_request(req: Request<Body>, remote_addr: SocketAddr) -> Result<R
         }
     }
 
-    // Get backend configuration for the host
-    let backend_config = CONFIG_MANAGER.get_backend(host).await
-        .ok_or_else(|| {
+    // Get backend configuration for the host.
+    let backend_config = match CONFIG_MANAGER.get_backend(&host).await {
+        Some(config) => config,
+        None => {
             log::error!("No backend configuration found for host: {}", host);
-            make_error(format!("No backend found for host: {}", host))
-        })?;
+            return Ok(Response::builder()
+                .status(500)
+                .body(Body::from(format!("No backend found for host: {}", host)))
+                .unwrap());
+        }
+    };
 
-    // Create a client with the configured timeout
+    // Create a client with the configured timeout.
     let client = Client::builder()
         .pool_idle_timeout(Duration::from_secs(backend_config.timeout_seconds.unwrap_or(30)))
         .build_http();
 
-    // Parse the backend URL
-    let backend_uri = backend_config.url.parse::<Uri>()
-        .map_err(|e| {
+    // Parse the backend URL.
+    let backend_uri = match backend_config.url.parse::<Uri>() {
+        Ok(uri) => uri,
+        Err(e) => {
             log::error!("Failed to parse backend URI: {}", e);
-            make_error(format!("Invalid backend URI: {}", e))
-        })?;
+            return Ok(Response::builder()
+                .status(500)
+                .body(Body::from(format!("Invalid backend URI: {}", e)))
+                .unwrap());
+        }
+    };
 
-    // Build new URI using the backend configuration
+    // Build a new URI using the backend configuration.
     let mut parts = req.uri().clone().into_parts();
     parts.scheme = backend_uri.scheme().cloned();
     parts.authority = backend_uri.authority().cloned();
 
-    let new_uri = Uri::from_parts(parts).map_err(|e| {
-        log::error!("Failed to build URI: {}", e);
-        make_error(format!("Failed to build URI: {}", e))
-    })?;
+    let new_uri = match Uri::from_parts(parts) {
+        Ok(uri) => uri,
+        Err(e) => {
+            log::error!("Failed to build URI: {}", e);
+            return Ok(Response::builder()
+                .status(500)
+                .body(Body::from(format!("Failed to build URI: {}", e)))
+                .unwrap());
+        }
+    };
 
-    // Build the new request
+    // Consume the original request into parts and body.
     let (parts, body) = req.into_parts();
     let mut req_builder = Request::builder()
         .method(&parts.method)
         .uri(new_uri);
 
-    // Copy headers
+    // Copy headers.
     for (key, value) in parts.headers.iter() {
         req_builder = req_builder.header(key, value);
     }
 
-    // Add X-Forwarded headers
+    // Add X-Forwarded headers.
     req_builder = req_builder
         .header("X-Forwarded-For", remote_addr.ip().to_string())
         .header("X-Forwarded-Proto", "http")
         .header("X-Forwarded-Host", host);
 
-    let proxy_req = req_builder.body(body).map_err(|e| {
-        log::error!("Failed to build proxy request: {}", e);
-        make_error(format!("Failed to build request: {}", e))
-    })?;
+    let proxy_req = match req_builder.body(body) {
+        Ok(r) => r,
+        Err(e) => {
+            log::error!("Failed to build proxy request: {}", e);
+            return Ok(Response::builder()
+                .status(500)
+                .body(Body::from(format!("Failed to build request: {}", e)))
+                .unwrap());
+        }
+    };
 
-    // Forward the request to the backend
+    // Forward the request to the backend.
     let resp = client.request(proxy_req).await?;
     
     log::info!(
@@ -196,15 +207,15 @@ async fn handle_request(req: Request<Body>, remote_addr: SocketAddr) -> Result<R
     Ok(resp)
 }
 
-/// Runs the proxy server
+/// Runs the proxy server.
 pub async fn run_proxy() {
-    // Load the configuration
+    // Load configuration.
     if let Err(e) = CONFIG_MANAGER.load_config("config/proxy.json").await {
         log::error!("Failed to load configuration: {}", e);
         return;
     }
 
-    // Load ACL configuration
+    // Load ACL configuration.
     if let Err(e) = load_acl_from_config("config/proxy.json").await {
         log::error!("Failed to load ACL configuration: {}", e);
         return;
@@ -232,7 +243,7 @@ pub async fn run_proxy() {
 
 #[tokio::main]
 async fn main() {
-    // Initialize logging; ensure you have env_logger as a dependency.
+    // Initialize logging (ensure you have env_logger as a dependency).
     env_logger::init();
     run_proxy().await;
 }
