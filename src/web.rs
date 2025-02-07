@@ -154,7 +154,23 @@ pub async fn run_web_interface() {
         .and(warp::get())
         .and(with_auth())
         .map(|_claims: Claims| {
-            warp::reply::html(include_str!("../static/admin.html"))
+            warp::reply::with_header(
+                warp::reply::html(include_str!("../static/admin.html")),
+                "content-type",
+                "text/html"
+            )
+        });
+
+    // Configuration page endpoint (protected)
+    let config = warp::path("config")
+        .and(warp::get())
+        .and(with_auth())
+        .map(|_claims: Claims| {
+            warp::reply::with_header(
+                warp::reply::html(include_str!("../static/config.html")),
+                "content-type",
+                "text/html"
+            )
         });
 
     // Metrics endpoint exposes Prometheus-compatible metrics.
@@ -166,14 +182,7 @@ pub async fn run_web_interface() {
             let mut buffer = Vec::new();
             encoder.encode(&metric_families, &mut buffer).unwrap();
             String::from_utf8(buffer).unwrap()
-        })
-        .boxed();
-
-    // Configuration endpoint
-    let config = warp::path("config")
-        .and(with_auth()) // Protect config endpoint
-        .map(|_| warp::reply::html(include_str!("../static/config.html")))
-        .boxed();
+        });
 
     // Add API endpoints for configuration
     let config_state = Arc::clone(&PROXY_CONFIG);
@@ -191,7 +200,6 @@ pub async fn run_web_interface() {
                     Ok::<_, Rejection>(warp::reply::json(&*config))
                 }
             })
-            .boxed()
     };
 
     // POST update configuration
@@ -204,25 +212,23 @@ pub async fn run_web_interface() {
                 let config_state = Arc::clone(&config_state);
                 async move {
                     let mut config = config_state.write().await;
-                    // Clone new_config before moving it into config
                     let new_config_clone = new_config.clone();
                     *config = new_config;
                     
                     if let Err(e) = save_config_to_disk(&new_config_clone) {
                         log::error!("Failed to save configuration: {}", e);
                         return Ok::<_, Rejection>(warp::reply::with_status(
-                            "Failed to save configuration",
+                            warp::reply::json(&json!({"error": "Failed to save configuration"})),
                             StatusCode::INTERNAL_SERVER_ERROR,
                         ));
                     }
 
                     Ok(warp::reply::with_status(
-                        "Configuration updated successfully",
+                        warp::reply::json(&json!({"message": "Configuration updated successfully"})),
                         StatusCode::OK,
                     ))
                 }
             })
-            .boxed()
     };
 
     // Add API endpoints for metrics
@@ -233,14 +239,14 @@ pub async fn run_web_interface() {
         let metrics_state = Arc::clone(&metrics_state);
         warp::path!("api" / "metrics")
             .and(warp::get())
-            .and_then(move || {
+            .and(with_auth())
+            .and_then(move |_| {
                 let metrics_state = Arc::clone(&metrics_state);
                 async move {
                     let metrics = metrics_state.read().await;
                     Ok::<_, Rejection>(warp::reply::json(&*metrics))
                 }
             })
-            .boxed()
     };
 
     // WebSocket endpoint for real-time metrics updates
@@ -248,17 +254,14 @@ pub async fn run_web_interface() {
         .and(warp::ws())
         .map(|ws: warp::ws::Ws| {
             ws.on_upgrade(|websocket| handle_ws_client(websocket))
-        })
-        .boxed();
+        });
 
     // ACL Management Routes
     let acl_routes = get_acl_route()
         .or(add_blocked_domain_route())
         .or(remove_blocked_domain_route())
         .or(add_blocked_ip_route())
-        .or(remove_blocked_ip_route())
-        .with(warp::cors().allow_any_origin())
-        .recover(handle_rejection);
+        .or(remove_blocked_ip_route());
 
     // Create CORS configuration
     let cors = warp::cors()
@@ -274,11 +277,11 @@ pub async fn run_web_interface() {
         .or(login_api)
         .or(verify_api)
         .or(admin)
-        .or(metrics)
         .or(config)
         .or(get_config)
         .or(update_config)
         .or(get_metrics)
+        .or(metrics)
         .or(ws_metrics)
         .or(acl_routes)
         .recover(handle_rejection)
