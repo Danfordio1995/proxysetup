@@ -93,7 +93,7 @@
         </div>
     </div>
 
-    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.2/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         $(document).ready(function() {
@@ -117,19 +117,48 @@
 
             $("#configForm").on("submit", function(e) {
                 e.preventDefault();
-                alert("Settings have been saved!");
+                const saveButton = $(this).find('button[type="submit"]');
+                const originalText = saveButton.text();
+                
+                // Show saving state
+                saveButton.prop('disabled', true).text('Saving...');
+                
+                // Prepare the configuration data
+                const config = {
+                    rate_limit: parseInt($('#rateLimit').val()),
+                    cache_size: parseInt($('#cacheSize').val())
+                };
+                
+                // Send to backend
+                fetch('/api/config', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(config)
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Failed to save configuration');
+                    }
+                    saveButton.text('Saved!').addClass('btn-success');
+                    setTimeout(() => {
+                        saveButton.prop('disabled', false)
+                                .text(originalText)
+                                .removeClass('btn-success');
+                    }, 2000);
+                })
+                .catch(error => {
+                    saveButton.text('Error!').addClass('btn-danger');
+                    setTimeout(() => {
+                        saveButton.prop('disabled', false)
+                                .text(originalText)
+                                .removeClass('btn-danger');
+                    }, 2000);
+                    console.error('Error saving configuration:', error);
+                });
             });
 
-            // Simulated metrics update (replace with real metrics in production)
-            setInterval(function() {
-                $("#requestCount").text(Math.floor(Math.random() * 10000));
-                $("#cacheHitRate").text(Math.floor(Math.random() * 100) + "%");
-                $("#throttledRequests").text(Math.floor(Math.random() * 100));
-            }, 2000);
-        });
-    </script>
-</body>
-</html> 
             // Simulated metrics update (replace with real metrics in production)
             setInterval(function() {
                 $("#requestCount").text(Math.floor(Math.random() * 10000));
