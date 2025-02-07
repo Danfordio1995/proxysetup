@@ -5,6 +5,7 @@ use lazy_static::lazy_static;
 use regex::Regex;
 use ipnet::IpNet;
 use std::net::IpAddr;
+use std::fs;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AclConfig {
@@ -34,6 +35,65 @@ lazy_static! {
 pub async fn update_acl_config(config: AclConfig) {
     let mut acl = ACL_CONFIG.write().await;
     *acl = config;
+}
+
+pub async fn get_acl_config() -> AclConfig {
+    ACL_CONFIG.read().await.clone()
+}
+
+pub async fn add_blocked_domain(domain: String) -> Result<(), String> {
+    let mut acl = ACL_CONFIG.write().await;
+    if !acl.blocked_domains.contains(&domain) {
+        acl.blocked_domains.push(domain);
+        save_acl_config(&acl).await.map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+pub async fn remove_blocked_domain(domain: &str) -> Result<(), String> {
+    let mut acl = ACL_CONFIG.write().await;
+    if let Some(pos) = acl.blocked_domains.iter().position(|x| x == domain) {
+        acl.blocked_domains.remove(pos);
+        save_acl_config(&acl).await.map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+pub async fn add_blocked_ip(ip: String) -> Result<(), String> {
+    // Validate IP/CIDR format
+    if ip.parse::<IpNet>().is_err() {
+        return Err("Invalid IP or CIDR format".to_string());
+    }
+
+    let mut acl = ACL_CONFIG.write().await;
+    if !acl.blocked_ips.contains(&ip) {
+        acl.blocked_ips.push(ip);
+        save_acl_config(&acl).await.map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+pub async fn remove_blocked_ip(ip: &str) -> Result<(), String> {
+    let mut acl = ACL_CONFIG.write().await;
+    if let Some(pos) = acl.blocked_ips.iter().position(|x| x == ip) {
+        acl.blocked_ips.remove(pos);
+        save_acl_config(&acl).await.map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+async fn save_acl_config(config: &AclConfig) -> Result<(), Box<dyn std::error::Error>> {
+    let config_str = serde_json::to_string_pretty(&config)?;
+    fs::write("config/acl.json", config_str)?;
+    Ok(())
+}
+
+pub async fn load_acl_config() -> Result<(), Box<dyn std::error::Error>> {
+    if let Ok(contents) = fs::read_to_string("config/acl.json") {
+        let config: AclConfig = serde_json::from_str(&contents)?;
+        update_acl_config(config).await;
+    }
+    Ok(())
 }
 
 pub async fn check_acl(host: &str, ip: Option<&str>, _path: Option<&str>) -> bool {
@@ -107,16 +167,4 @@ fn create_domain_pattern(pattern: &str) -> Result<Regex, regex::Error> {
         .replace(".", "\\.")
         .replace("*", ".*");
     Regex::new(&format!("^{}$", pattern))
-}
-
-pub async fn load_acl_from_config(config_path: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let config_str = std::fs::read_to_string(config_path)?;
-    let config: serde_json::Value = serde_json::from_str(&config_str)?;
-    
-    if let Some(acl) = config.get("acl") {
-        let acl_config: AclConfig = serde_json::from_value(acl.clone())?;
-        update_acl_config(acl_config).await;
-    }
-    
-    Ok(())
 } 

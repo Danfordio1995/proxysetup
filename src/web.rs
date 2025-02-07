@@ -11,6 +11,10 @@ use warp::reply::WithStatus;
 use warp::http::StatusCode;
 use warp::Rejection;
 use std::convert::Infallible;
+use crate::auth::{with_auth, handle_rejection};
+use crate::users::{UserRole, Claims};
+use crate::acl::{self, AclConfig};
+use serde_json::json;
 
 // Add configuration structures
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -219,6 +223,16 @@ pub async fn run_web_interface() {
         })
         .boxed();
 
+    // ACL Management Routes
+    let acl_routes = login_route()
+        .or(get_acl_route())
+        .or(add_blocked_domain_route())
+        .or(remove_blocked_domain_route())
+        .or(add_blocked_ip_route())
+        .or(remove_blocked_ip_route())
+        .with(warp::cors().allow_any_origin())
+        .recover(handle_rejection);
+
     // Combine routes with explicit type annotations
     let routes = root
         .or(metrics)
@@ -229,7 +243,7 @@ pub async fn run_web_interface() {
         .or(update_config)
         .or(get_metrics)
         .or(ws_metrics)
-        .with(warp::cors().allow_any_origin());
+        .or(acl_routes);
 
     // Serve the web interface on port 9000.
     warp::serve(routes)
@@ -265,5 +279,102 @@ async fn handle_ws_client(ws: warp::ws::WebSocket) {
             }
         }
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+    }
+}
+
+// ACL Management Routes
+
+fn get_acl_route() -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
+    warp::path!("api" / "acl")
+        .and(warp::get())
+        .and(with_auth())
+        .and_then(handle_get_acl)
+}
+
+fn add_blocked_domain_route() -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
+    warp::path!("api" / "acl" / "domains")
+        .and(warp::post())
+        .and(with_auth())
+        .and(warp::body::json())
+        .and_then(handle_add_blocked_domain)
+}
+
+fn remove_blocked_domain_route() -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
+    warp::path!("api" / "acl" / "domains" / String)
+        .and(warp::delete())
+        .and(with_auth())
+        .and_then(handle_remove_blocked_domain)
+}
+
+fn add_blocked_ip_route() -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
+    warp::path!("api" / "acl" / "ips")
+        .and(warp::post())
+        .and(with_auth())
+        .and(warp::body::json())
+        .and_then(handle_add_blocked_ip)
+}
+
+fn remove_blocked_ip_route() -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
+    warp::path!("api" / "acl" / "ips" / String)
+        .and(warp::delete())
+        .and(with_auth())
+        .and_then(handle_remove_blocked_ip)
+}
+
+async fn handle_get_acl(claims: Claims) -> Result<impl Reply, Rejection> {
+    match claims.role {
+        UserRole::Admin => {
+            let config = acl::get_acl_config().await;
+            Ok(warp::reply::json(&config))
+        }
+        _ => Err(warp::reject::custom(AuthError::InsufficientPermissions)),
+    }
+}
+
+async fn handle_add_blocked_domain(claims: Claims, body: DomainRequest) -> Result<impl Reply, Rejection> {
+    match claims.role {
+        UserRole::Admin => {
+            match acl::add_blocked_domain(body.domain).await {
+                Ok(()) => Ok(warp::reply::json(&json!({ "message": "Domain blocked successfully" }))),
+                Err(e) => Ok(warp::reply::json(&json!({ "error": e })))
+            }
+        }
+        _ => Err(warp::reject::custom(AuthError::InsufficientPermissions)),
+    }
+}
+
+async fn handle_remove_blocked_domain(domain: String, claims: Claims) -> Result<impl Reply, Rejection> {
+    match claims.role {
+        UserRole::Admin => {
+            match acl::remove_blocked_domain(&domain).await {
+                Ok(()) => Ok(warp::reply::json(&json!({ "message": "Domain unblocked successfully" }))),
+                Err(e) => Ok(warp::reply::json(&json!({ "error": e })))
+            }
+        }
+        _ => Err(warp::reject::custom(AuthError::InsufficientPermissions)),
+    }
+}
+
+async fn handle_add_blocked_ip(claims: Claims, body: IpRequest) -> Result<impl Reply, Rejection> {
+    match claims.role {
+        UserRole::Admin => {
+            match acl::add_blocked_ip(body.ip).await {
+                Ok(()) => Ok(warp::reply::json(&json!({ "message": "IP blocked successfully" }))),
+                Err(e) => Ok(warp::reply::json(&json!({ "error": e })))
+            }
+        }
+        _ => Err(warp::reject::custom(AuthError::InsufficientPermissions)),
+    }
+}
+
+async fn handle_remove_blocked_ip(ip: String, claims: Claims) -> Result<impl Reply, Rejection> {
+    match claims.role {
+        UserRole::Admin => {
+            match acl::remove_blocked_ip(&ip).await {
+                Ok(()) => Ok(warp::reply::json(&json!({ "message": "IP unblocked successfully" }))),
+                Err(e) => Ok(warp::reply::json(&json!({ "error": e })))
+            }
+        }
+        _ => Err(warp::reject::custom(AuthError::InsufficientPermissions)),
     }
 } 
