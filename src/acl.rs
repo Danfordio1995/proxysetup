@@ -1,101 +1,122 @@
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use lazy_static::lazy_static;
 use regex::Regex;
-use std::collections::HashSet;
+use ipnet::IpNet;
 use std::net::IpAddr;
-use std::str::FromStr;
-use tokio::sync::RwLock;
 
-#[derive(Debug, Clone)]
-pub struct AclRule {
-    pub domain_pattern: String,
-    pub ip_ranges: Vec<String>,
-    pub paths: Vec<String>,
-    pub is_blacklist: bool,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AclConfig {
+    pub blocked_domains: Vec<String>,
+    pub allowed_ips: Vec<String>,
+    #[serde(default)]
+    pub blocked_ips: Vec<String>,
+    #[serde(default)]
+    pub allowed_domains: Vec<String>,
+}
+
+impl Default for AclConfig {
+    fn default() -> Self {
+        AclConfig {
+            blocked_domains: Vec::new(),
+            allowed_ips: vec!["0.0.0.0/0".to_string()], // Allow all by default
+            blocked_ips: Vec::new(),
+            allowed_domains: Vec::new(),
+        }
+    }
 }
 
 lazy_static! {
-    static ref ACL_RULES: RwLock<Vec<AclRule>> = RwLock::new(Vec::new());
-    static ref DOMAIN_CACHE: RwLock<HashSet<String>> = RwLock::new(HashSet::new());
+    static ref ACL_CONFIG: Arc<RwLock<AclConfig>> = Arc::new(RwLock::new(AclConfig::default()));
 }
 
-/// Checks if access is permitted for a given domain and IP
-pub async fn check_acl(domain: &str, ip: Option<&str>, path: Option<&str>) -> bool {
-    let rules = ACL_RULES.read().await;
-    
-    // First check domain cache for quick lookups
-    {
-        let cache = DOMAIN_CACHE.read().await;
-        if cache.contains(domain) {
+pub async fn update_acl_config(config: AclConfig) {
+    let mut acl = ACL_CONFIG.write().await;
+    *acl = config;
+}
+
+pub async fn check_acl(host: &str, ip: Option<&str>, _path: Option<&str>) -> bool {
+    let config = ACL_CONFIG.read().await;
+
+    // Check IP restrictions if an IP is provided
+    if let Some(ip_str) = ip {
+        if let Ok(ip_addr) = ip_str.parse::<IpAddr>() {
+            // Check blocked IPs first
+            for blocked in &config.blocked_ips {
+                if let Ok(network) = blocked.parse::<IpNet>() {
+                    if network.contains(&ip_addr) {
+                        log::warn!("IP {} is blocked by ACL", ip_str);
+                        return false;
+                    }
+                }
+            }
+
+            // Then check if IP is in allowed ranges
+            let mut ip_allowed = false;
+            for allowed in &config.allowed_ips {
+                if let Ok(network) = allowed.parse::<IpNet>() {
+                    if network.contains(&ip_addr) {
+                        ip_allowed = true;
+                        break;
+                    }
+                }
+            }
+
+            if !ip_allowed {
+                log::warn!("IP {} is not in allowed ranges", ip_str);
+                return false;
+            }
+        }
+    }
+
+    // Check domain restrictions
+    // First check if domain is explicitly blocked
+    for pattern in &config.blocked_domains {
+        if let Ok(re) = create_domain_pattern(pattern) {
+            if re.is_match(host) {
+                log::warn!("Domain {} is blocked by pattern {}", host, pattern);
+                return false;
+            }
+        }
+    }
+
+    // If there are allowed domains, check if the host matches any
+    if !config.allowed_domains.is_empty() {
+        let mut domain_allowed = false;
+        for pattern in &config.allowed_domains {
+            if let Ok(re) = create_domain_pattern(pattern) {
+                if re.is_match(host) {
+                    domain_allowed = true;
+                    break;
+                }
+            }
+        }
+
+        if !domain_allowed {
+            log::warn!("Domain {} is not in allowed list", host);
             return false;
         }
     }
 
-    for rule in rules.iter() {
-        // Check domain pattern
-        if let Ok(pattern) = Regex::new(&rule.domain_pattern) {
-            if pattern.is_match(domain) {
-                // If it's a blacklist rule and matches, deny access
-                if rule.is_blacklist {
-                    // Cache the blocked domain
-                    DOMAIN_CACHE.write().await.insert(domain.to_string());
-                    return false;
-                }
-            }
-        }
-
-        // Check IP ranges if provided
-        if let Some(ip_str) = ip {
-            if let Ok(ip_addr) = IpAddr::from_str(ip_str) {
-                for range in &rule.ip_ranges {
-                    if is_ip_in_range(&ip_addr, range) {
-                        return !rule.is_blacklist;
-                    }
-                }
-            }
-        }
-
-        // Check paths if provided
-        if let Some(request_path) = path {
-            for rule_path in &rule.paths {
-                if let Ok(path_pattern) = Regex::new(rule_path) {
-                    if path_pattern.is_match(request_path) {
-                        return !rule.is_blacklist;
-                    }
-                }
-            }
-        }
-    }
-
-    // Default allow if no rules match
     true
 }
 
-/// Adds a new ACL rule
-pub async fn add_rule(rule: AclRule) {
-    ACL_RULES.write().await.push(rule);
+fn create_domain_pattern(pattern: &str) -> Result<Regex, regex::Error> {
+    let pattern = pattern
+        .replace(".", "\\.")
+        .replace("*", ".*");
+    Regex::new(&format!("^{}$", pattern))
 }
 
-/// Clears all ACL rules
-pub async fn clear_rules() {
-    ACL_RULES.write().await.clear();
-    DOMAIN_CACHE.write().await.clear();
-}
-
-/// Helper function to check if an IP is in a CIDR range
-fn is_ip_in_range(ip: &IpAddr, range: &str) -> bool {
-    // Basic implementation - in production, use a proper CIDR parsing library
-    match (ip, range.split('/').collect::<Vec<_>>().as_slice()) {
-        (IpAddr::V4(_ip), [network, bits]) => {
-            if let (Ok(_network_ip), Ok(_bits)) = (
-                IpAddr::from_str(network),
-                bits.parse::<u8>(),
-            ) {
-                // Implement CIDR range checking logic here
-                true // Placeholder - implement actual CIDR check
-            } else {
-                false
-            }
-        }
-        _ => false,
+pub async fn load_acl_from_config(config_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let config_str = std::fs::read_to_string(config_path)?;
+    let config: serde_json::Value = serde_json::from_str(&config_str)?;
+    
+    if let Some(acl) = config.get("acl") {
+        let acl_config: AclConfig = serde_json::from_value(acl.clone())?;
+        update_acl_config(acl_config).await;
     }
+    
+    Ok(())
 } 

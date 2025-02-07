@@ -4,6 +4,7 @@ use tokio::sync::RwLock;
 use std::fs;
 use lazy_static::lazy_static;
 use crate::web::ProxyConfig;
+use std::collections::HashMap;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MetricsData {
@@ -83,4 +84,116 @@ async fn reload_configuration() -> std::io::Result<()> {
     // Implement configuration reload logic here
     // This might involve signaling other parts of the application
     Ok(())
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct BackendConfig {
+    pub url: String,
+    pub enabled: bool,
+    #[serde(default)]
+    pub rate_limit: Option<f64>,
+    #[serde(default)]
+    pub timeout_seconds: Option<u64>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ProxyConfig {
+    pub backends: HashMap<String, BackendConfig>,
+    pub default_backend: String,
+    #[serde(default = "default_port")]
+    pub port: u16,
+}
+
+fn default_port() -> u16 {
+    8000
+}
+
+impl Default for ProxyConfig {
+    fn default() -> Self {
+        let mut backends = HashMap::new();
+        backends.insert(
+            "default".to_string(),
+            BackendConfig {
+                url: "http://127.0.0.1:8080".to_string(),
+                enabled: true,
+                rate_limit: Some(100.0),
+                timeout_seconds: Some(30),
+            },
+        );
+
+        ProxyConfig {
+            backends,
+            default_backend: "default".to_string(),
+            port: default_port(),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct ConfigManager {
+    config: Arc<RwLock<ProxyConfig>>,
+}
+
+impl ConfigManager {
+    pub fn new() -> Self {
+        ConfigManager {
+            config: Arc::new(RwLock::new(ProxyConfig::default())),
+        }
+    }
+
+    pub async fn load_config(&self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let config_str = fs::read_to_string(path)?;
+        let config: ProxyConfig = serde_json::from_str(&config_str)?;
+        
+        // Validate the configuration
+        if !config.backends.contains_key(&config.default_backend) {
+            return Err("Default backend not found in backends list".into());
+        }
+
+        let mut write_guard = self.config.write().await;
+        *write_guard = config;
+        Ok(())
+    }
+
+    pub async fn get_backend(&self, host: &str) -> Option<BackendConfig> {
+        let config = self.config.read().await;
+        
+        // First try to find a direct match for the host
+        if let Some(backend) = config.backends.get(host) {
+            if backend.enabled {
+                return Some(backend.clone());
+            }
+        }
+
+        // If no direct match, return the default backend if it's enabled
+        config.backends.get(&config.default_backend)
+            .filter(|b| b.enabled)
+            .cloned()
+    }
+
+    pub async fn get_port(&self) -> u16 {
+        self.config.read().await.port
+    }
+
+    pub async fn add_backend(&self, host: String, backend: BackendConfig) -> Result<(), Box<dyn std::error::Error>> {
+        let mut config = self.config.write().await;
+        config.backends.insert(host, backend);
+        Ok(())
+    }
+
+    pub async fn remove_backend(&self, host: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let mut config = self.config.write().await;
+        if host == config.default_backend {
+            return Err("Cannot remove default backend".into());
+        }
+        config.backends.remove(host);
+        Ok(())
+    }
+
+    pub async fn save_config(&self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let config = self.config.read().await;
+        let config_str = serde_json::to_string_pretty(&*config)?;
+        fs::write(path, config_str)?;
+        Ok(())
+    }
 } 

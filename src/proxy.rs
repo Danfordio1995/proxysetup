@@ -4,17 +4,15 @@ use std::convert::Infallible;
 use lazy_static::lazy_static;
 use tokio::sync::Mutex;
 use std::net::SocketAddr;
-use crate::{rate_limiter::RateLimiter, cache::cache_get, acl::check_acl};
+use crate::{rate_limiter::RateLimiter, cache::cache_get, acl::check_acl, config_manager::ConfigManager};
+use crate::acl::load_acl_from_config;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-
-static BACKEND: &str = "http://127.0.0.1:8080";
+use std::sync::Arc;
+use std::time::Duration;
 
 lazy_static! {
-    // Pre-parse the backend URI once at startup.
-    static ref BACKEND_URI: Uri = BACKEND.parse().expect("Invalid backend URI");
-
-    // Global rate limiter: capacity of 100 tokens with a refill rate of 100 tokens per second.
+    static ref CONFIG_MANAGER: ConfigManager = ConfigManager::new();
     static ref GLOBAL_RATE_LIMITER: Mutex<RateLimiter> = Mutex::new(RateLimiter::new(100.0, 100.0));
 }
 
@@ -44,7 +42,21 @@ async fn tunnel(mut client_conn: hyper::upgrade::Upgraded, addr: String) -> Resu
 async fn handle_request(req: Request<Body>, remote_addr: SocketAddr) -> Result<Response<Body>, hyper::Error> {
     log::info!("Proxying request: {} {} from {}", req.method(), req.uri(), remote_addr);
 
-    // Global rate limiting.
+    // Get the host from the request
+    let host = req.uri().host().unwrap_or_default();
+    let path = req.uri().path();
+    let ip = remote_addr.ip().to_string();
+
+    // Enhanced ACL check with IP and path - do this before rate limiting
+    if !check_acl(host, Some(&ip), Some(path)).await {
+        log::warn!("Access denied for {}:{} from {}", host, path, ip);
+        return Ok(Response::builder()
+            .status(403)
+            .body(Body::from("Forbidden"))
+            .unwrap());
+    }
+
+    // Global rate limiting - only if ACL check passes
     {
         let mut limiter = GLOBAL_RATE_LIMITER.lock().await;
         if !limiter.allow().await {
@@ -90,21 +102,7 @@ async fn handle_request(req: Request<Body>, remote_addr: SocketAddr) -> Result<R
         return Ok(resp);
     }
 
-    // Clone the host string to avoid borrowing issues when consuming `req` later.
-    let host = req.uri().host().unwrap_or_default().to_string();
-    let path = req.uri().path();
-    let ip = remote_addr.ip().to_string();
-
-    // Enhanced ACL check with IP and path.
-    if !check_acl(&host, Some(&ip), Some(path)).await {
-        log::warn!("Access denied for {}:{} from {}", host, path, ip);
-        return Ok(Response::builder()
-            .status(403)
-            .body(Body::from("Forbidden"))
-            .unwrap());
-    }
-
-    // Check cache for GET requests.
+    // Check cache for GET requests
     if req.method() == hyper::Method::GET {
         if let Some(cached) = cache_get(path).await {
             log::debug!("Cache hit for {}", path);
@@ -116,66 +114,97 @@ async fn handle_request(req: Request<Body>, remote_addr: SocketAddr) -> Result<R
         }
     }
 
-    let client = Client::new();
+    // Get backend configuration for the host
+    let backend_config = CONFIG_MANAGER.get_backend(host).await
+        .ok_or_else(|| {
+            log::error!("No backend configuration found for host: {}", host);
+            hyper::Error::from(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("No backend found for host: {}", host),
+            ))
+        })?;
 
-    // Build a new URI by replacing the scheme and authority from the backend.
+    // Create a client with the configured timeout
+    let client = Client::builder()
+        .pool_idle_timeout(Duration::from_secs(backend_config.timeout_seconds.unwrap_or(30)))
+        .build_http();
+
+    // Parse the backend URL
+    let backend_uri = backend_config.url.parse::<Uri>().map_err(|e| {
+        log::error!("Failed to parse backend URI: {}", e);
+        hyper::Error::from(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("Invalid backend URI: {}", e),
+        ))
+    })?;
+
+    // Build new URI using the backend configuration
     let mut parts = req.uri().clone().into_parts();
-    parts.scheme = BACKEND_URI.scheme().cloned();
-    parts.authority = BACKEND_URI.authority().cloned();
+    parts.scheme = backend_uri.scheme().cloned();
+    parts.authority = backend_uri.authority().cloned();
 
-    let new_uri = match Uri::from_parts(parts) {
-        Ok(uri) => uri,
-        Err(e) => {
-            log::error!("Failed to build URI: {}", e);
-            return Ok(Response::builder()
-                .status(500)
-                .body(Body::from("Internal Server Error"))
-                .unwrap());
-        }
-    };
+    let new_uri = Uri::from_parts(parts).map_err(|e| {
+        log::error!("Failed to build URI: {}", e);
+        hyper::Error::from(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("Failed to build URI: {}", e),
+        ))
+    })?;
 
-    // Consume the request to get its parts and body.
+    // Build the new request
     let (parts, body) = req.into_parts();
     let mut req_builder = Request::builder()
         .method(&parts.method)
         .uri(new_uri);
 
-    // Copy headers from the original request.
+    // Copy headers
     for (key, value) in parts.headers.iter() {
         req_builder = req_builder.header(key, value);
     }
 
-    // Add X-Forwarded headers.
+    // Add X-Forwarded headers
     req_builder = req_builder
         .header("X-Forwarded-For", remote_addr.ip().to_string())
         .header("X-Forwarded-Proto", "http")
         .header("X-Forwarded-Host", host);
 
-    let proxy_req = match req_builder.body(body) {
-        Ok(req) => req,
-        Err(e) => {
-            log::error!("Failed to build proxy request: {}", e);
-            return Ok(Response::builder()
-                .status(500)
-                .body(Body::from("Internal Server Error"))
-                .unwrap());
-        }
-    };
+    let proxy_req = req_builder.body(body).map_err(|e| {
+        log::error!("Failed to build proxy request: {}", e);
+        hyper::Error::from(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("Failed to build request: {}", e),
+        ))
+    })?;
 
-    // Forward the request to the backend.
+    // Forward the request to the backend
     let resp = client.request(proxy_req).await?;
+    
     log::info!(
         "Backend responded with status {} for {} {}",
         resp.status(),
         parts.method,
         parts.uri
     );
+
     Ok(resp)
 }
 
-/// Runs the proxy server on port 8000.
+/// Runs the proxy server
 pub async fn run_proxy() {
-    let addr = ([0, 0, 0, 0], 8000).into();
+    // Load the configuration
+    if let Err(e) = CONFIG_MANAGER.load_config("config/proxy.json").await {
+        log::error!("Failed to load configuration: {}", e);
+        return;
+    }
+
+    // Load ACL configuration
+    if let Err(e) = load_acl_from_config("config/proxy.json").await {
+        log::error!("Failed to load ACL configuration: {}", e);
+        return;
+    }
+
+    let port = CONFIG_MANAGER.get_port().await;
+    let addr = ([0, 0, 0, 0], port).into();
     
     let make_svc = make_service_fn(|conn: &hyper::server::conn::AddrStream| {
         let remote_addr = conn.remote_addr();

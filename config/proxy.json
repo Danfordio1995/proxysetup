@@ -1,7 +1,9 @@
 {
   "acl": {
     "blocked_domains": ["*.malicious.com"],
-    "allowed_ips": ["10.0.0.0/8"]
+    "allowed_ips": ["10.0.0.0/8"],
+    "blocked_ips": ["1.2.3.4/32"],
+    "allowed_domains": []  
   },
   "cache": {
     "memory_size": 10240,
@@ -10,13 +12,35 @@
     "serve_stale": true
   },
   "tls": {
-    "cert_path": "/opt/proxy_project/certs/cert.pem",
-    "key_path": "/opt/proxy_project/certs/key.pem",
+    "cert_path": "proxy_project/certs/cert.pem",
+    "key_path": "proxy_project/certs/key.pem",
     "enable_tls13": true,
     "session_tickets": true
   },
   "rate_limit": {
     "requests_per_second": 100,
     "burst_size": 200
-  }
+  },
+  "backends": {
+    "default": {
+      "url": "http://127.0.0.1:8080",
+      "enabled": true,
+      "rate_limit": 100.0,
+      "timeout_seconds": 30
+    },
+    "api.example.com": {
+      "url": "http://localhost:3000",
+      "enabled": true,
+      "rate_limit": 50.0,
+      "timeout_seconds": 60
+    },
+    "static.example.com": {
+      "url": "http://localhost:8081",
+      "enabled": true,
+      "rate_limit": 200.0,
+      "timeout_seconds": 15
+    }
+  },
+  "default_backend": "default",
+  "port": 8000
 }
