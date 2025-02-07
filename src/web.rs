@@ -4,8 +4,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use serde::{Deserialize, Serialize};
-use crate::config_manager::{self, MetricsData, METRICS};
+use crate::config_manager::{METRICS};
 use futures_util::StreamExt;
+use futures_util::SinkExt;
 use prometheus::{Encoder, TextEncoder};
 
 // Add configuration structures
