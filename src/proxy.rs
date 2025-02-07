@@ -10,6 +10,7 @@ use tokio::io::{AsyncRead, AsyncWrite, AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use std::sync::Arc;
 use std::time::Duration;
+use std::error::Error as StdError;
 
 lazy_static! {
     static ref CONFIG_MANAGER: ConfigManager = ConfigManager::new();
@@ -36,6 +37,23 @@ async fn tunnel(mut client_conn: hyper::upgrade::Upgraded, addr: String) -> Resu
 
     tokio::try_join!(client_to_server, server_to_client)?;
     Ok(())
+}
+
+/// Creates a hyper::Error from a string message
+fn make_error<E: std::fmt::Display>(err: E) -> hyper::Error {
+    use std::error::Error as StdError;
+    #[derive(Debug)]
+    struct ProxyError(String);
+    
+    impl std::fmt::Display for ProxyError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}", self.0)
+        }
+    }
+    
+    impl StdError for ProxyError {}
+    
+    hyper::Error::new_user_without_cause(ProxyError(err.to_string()))
 }
 
 /// Handles incoming HTTP requests and forwards them to the backend.
@@ -118,10 +136,7 @@ async fn handle_request(req: Request<Body>, remote_addr: SocketAddr) -> Result<R
     let backend_config = CONFIG_MANAGER.get_backend(host).await
         .ok_or_else(|| {
             log::error!("No backend configuration found for host: {}", host);
-            hyper::Error::from(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                format!("No backend found for host: {}", host),
-            ))
+            make_error(format!("No backend found for host: {}", host))
         })?;
 
     // Create a client with the configured timeout
@@ -130,13 +145,11 @@ async fn handle_request(req: Request<Body>, remote_addr: SocketAddr) -> Result<R
         .build_http();
 
     // Parse the backend URL
-    let backend_uri = backend_config.url.parse::<Uri>().map_err(|e| {
-        log::error!("Failed to parse backend URI: {}", e);
-        hyper::Error::from(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            format!("Invalid backend URI: {}", e),
-        ))
-    })?;
+    let backend_uri = backend_config.url.parse::<Uri>()
+        .map_err(|e| {
+            log::error!("Failed to parse backend URI: {}", e);
+            make_error(format!("Invalid backend URI: {}", e))
+        })?;
 
     // Build new URI using the backend configuration
     let mut parts = req.uri().clone().into_parts();
@@ -145,10 +158,7 @@ async fn handle_request(req: Request<Body>, remote_addr: SocketAddr) -> Result<R
 
     let new_uri = Uri::from_parts(parts).map_err(|e| {
         log::error!("Failed to build URI: {}", e);
-        hyper::Error::from(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            format!("Failed to build URI: {}", e),
-        ))
+        make_error(format!("Failed to build URI: {}", e))
     })?;
 
     // Build the new request
@@ -170,10 +180,7 @@ async fn handle_request(req: Request<Body>, remote_addr: SocketAddr) -> Result<R
 
     let proxy_req = req_builder.body(body).map_err(|e| {
         log::error!("Failed to build proxy request: {}", e);
-        hyper::Error::from(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("Failed to build request: {}", e),
-        ))
+        make_error(format!("Failed to build request: {}", e))
     })?;
 
     // Forward the request to the backend
