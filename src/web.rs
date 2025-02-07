@@ -5,42 +5,44 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use serde::{Deserialize, Serialize};
 use crate::config_manager::{self, MetricsData, METRICS};
+use futures_util::StreamExt;
+use prometheus::{Encoder, TextEncoder};
 
 // Add configuration structures
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct ProxyConfig {
-    acl: AclConfig,
-    cache: CacheConfig,
-    tls: TlsConfig,
-    rate_limit: RateLimitConfig,
+    pub acl: AclConfig,
+    pub cache: CacheConfig,
+    pub tls: TlsConfig,
+    pub rate_limit: RateLimitConfig,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-struct AclConfig {
-    blocked_domains: Vec<String>,
-    allowed_ips: Vec<String>,
+pub struct AclConfig {
+    pub blocked_domains: Vec<String>,
+    pub allowed_ips: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-struct CacheConfig {
-    memory_size: usize,
-    disk_size: usize,
-    ttl: u64,
-    serve_stale: bool,
+pub struct CacheConfig {
+    pub memory_size: usize,
+    pub disk_size: usize,
+    pub ttl: u64,
+    pub serve_stale: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-struct TlsConfig {
-    cert_path: String,
-    key_path: String,
-    enable_tls13: bool,
-    session_tickets: bool,
+pub struct TlsConfig {
+    pub cert_path: String,
+    pub key_path: String,
+    pub enable_tls13: bool,
+    pub session_tickets: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-struct RateLimitConfig {
-    requests_per_second: u32,
-    burst_size: u32,
+pub struct RateLimitConfig {
+    pub requests_per_second: u32,
+    pub burst_size: u32,
 }
 
 // Global configuration state
@@ -48,29 +50,42 @@ lazy_static! {
     static ref PROXY_CONFIG: Arc<RwLock<ProxyConfig>> = Arc::new(RwLock::new(ProxyConfig::default()));
 }
 
-impl Default for ProxyConfig {
+impl Default for AclConfig {
     fn default() -> Self {
-        ProxyConfig {
-            acl: AclConfig {
-                blocked_domains: vec!["*.malicious.com".to_string()],
-                allowed_ips: vec!["10.0.0.0/8".to_string()],
-            },
-            cache: CacheConfig {
-                memory_size: 10240,
-                disk_size: 10240,
-                ttl: 3600,
-                serve_stale: true,
-            },
-            tls: TlsConfig {
-                cert_path: "/opt/proxy_project/certs/cert.pem".to_string(),
-                key_path: "/opt/proxy_project/certs/key.pem".to_string(),
-                enable_tls13: true,
-                session_tickets: true,
-            },
-            rate_limit: RateLimitConfig {
-                requests_per_second: 100,
-                burst_size: 200,
-            },
+        Self {
+            blocked_domains: vec!["*.malicious.com".to_string()],
+            allowed_ips: vec!["10.0.0.0/8".to_string()],
+        }
+    }
+}
+
+impl Default for CacheConfig {
+    fn default() -> Self {
+        Self {
+            memory_size: 10240,
+            disk_size: 10240,
+            ttl: 3600,
+            serve_stale: true,
+        }
+    }
+}
+
+impl Default for TlsConfig {
+    fn default() -> Self {
+        Self {
+            cert_path: "/opt/proxy_project/certs/cert.pem".to_string(),
+            key_path: "/opt/proxy_project/certs/key.pem".to_string(),
+            enable_tls13: true,
+            session_tickets: true,
+        }
+    }
+}
+
+impl Default for RateLimitConfig {
+    fn default() -> Self {
+        Self {
+            requests_per_second: 100,
+            burst_size: 200,
         }
     }
 }
@@ -128,41 +143,37 @@ pub async fn run_web_interface() {
     // GET current configuration
     let get_config = warp::path!("api" / "config")
         .and(warp::get())
-        .map(move || {
-            let config = config_state.read().await;
-            warp::reply::json(&*config)
+        .and_then(move || {
+            let config_state = Arc::clone(&config_state);
+            async move {
+                let config = config_state.read().await;
+                Ok::<_, warp::Rejection>(warp::reply::json(&*config))
+            }
         });
 
     // POST update configuration
     let update_config = warp::path!("api" / "config")
         .and(warp::post())
         .and(warp::body::json())
-        .map(move |new_config: ProxyConfig| {
-            let mut config = config_state.write().await;
-            *config = new_config;
-            
-            // Save to disk
-            if let Err(e) = save_config_to_disk(&new_config) {
-                log::error!("Failed to save configuration: {}", e);
-                return warp::reply::with_status(
-                    "Failed to save configuration",
-                    warp::http::StatusCode::INTERNAL_SERVER_ERROR,
-                );
-            }
+        .and_then(move |new_config: ProxyConfig| {
+            let config_state = Arc::clone(&config_state);
+            async move {
+                let mut config = config_state.write().await;
+                *config = new_config;
+                
+                if let Err(e) = save_config_to_disk(&new_config) {
+                    log::error!("Failed to save configuration: {}", e);
+                    return Ok(warp::reply::with_status(
+                        "Failed to save configuration",
+                        warp::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    ));
+                }
 
-            // Notify proxy to reload configuration
-            if let Err(e) = reload_proxy_config() {
-                log::error!("Failed to reload proxy configuration: {}", e);
-                return warp::reply::with_status(
-                    "Failed to reload configuration",
-                    warp::http::StatusCode::INTERNAL_SERVER_ERROR,
-                );
+                Ok(warp::reply::with_status(
+                    "Configuration updated successfully",
+                    warp::http::StatusCode::OK,
+                ))
             }
-
-            warp::reply::with_status(
-                "Configuration updated successfully",
-                warp::http::StatusCode::OK,
-            )
         });
 
     // Add API endpoints for metrics
@@ -171,16 +182,19 @@ pub async fn run_web_interface() {
     // GET current metrics
     let get_metrics = warp::path!("api" / "metrics")
         .and(warp::get())
-        .map(move || {
-            let metrics = metrics_state.read().await;
-            warp::reply::json(&*metrics)
+        .and_then(move || {
+            let metrics_state = Arc::clone(&metrics_state);
+            async move {
+                let metrics = metrics_state.read().await;
+                Ok::<_, warp::Rejection>(warp::reply::json(&*metrics))
+            }
         });
 
     // WebSocket endpoint for real-time metrics updates
     let ws_metrics = warp::path!("ws" / "metrics")
         .and(warp::ws())
         .map(|ws: warp::ws::Ws| {
-            ws.on_upgrade(|socket| handle_ws_client(socket))
+            ws.on_upgrade(|websocket| handle_ws_client(websocket))
         });
 
     // Combine routes

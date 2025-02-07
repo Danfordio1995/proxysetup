@@ -3,6 +3,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use std::fs;
 use lazy_static::lazy_static;
+use crate::web::ProxyConfig;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MetricsData {
