@@ -61,17 +61,17 @@ async fn handle_request(req: Request<Body>, remote_addr: SocketAddr) -> Result<R
 
     // Build new URI based on the BACKEND address
     let mut parts = req.uri().clone().into_parts();
-    let backend_uri: Uri = BACKEND.parse().map_err(|e: hyper::http::uri::InvalidUri| {
+    let backend_uri: Uri = BACKEND.parse().map_err(|e| {
         log::error!("Failed to parse backend URI: {}", e);
-        hyper::Error::new_user_body(Box::new(e))
+        hyper::Error::from(e)
     })?;
     
     parts.scheme = backend_uri.scheme().cloned();
     parts.authority = backend_uri.authority().cloned();
     
-    let new_uri = Uri::from_parts(parts).map_err(|e: hyper::http::Error| {
+    let new_uri = Uri::from_parts(parts).map_err(|e| {
         log::error!("Failed to build URI: {}", e);
-        hyper::Error::new_user_body(Box::new(e))
+        hyper::Error::from(Box::new(e) as Box<dyn StdError + Send + Sync>)
     })?;
 
     // Rebuild the request with the updated URI
@@ -91,9 +91,9 @@ async fn handle_request(req: Request<Body>, remote_addr: SocketAddr) -> Result<R
         .header("X-Forwarded-Proto", "http")
         .header("X-Forwarded-Host", host);
 
-    let proxy_req = req_builder.body(body).map_err(|e: hyper::http::Error| {
+    let proxy_req = req_builder.body(body).map_err(|e| {
         log::error!("Failed to build proxy request: {}", e);
-        hyper::Error::new_user_body(Box::new(e))
+        hyper::Error::from(Box::new(e) as Box<dyn StdError + Send + Sync>)
     })?;
 
     // Forward the request to the backend and return the response
