@@ -5,6 +5,7 @@ use lazy_static::lazy_static;
 use tokio::sync::Mutex;
 use std::net::SocketAddr;
 use crate::{rate_limiter::RateLimiter, cache::cache_get, acl::check_acl};
+use std::error::Error as StdError;
 
 static BACKEND: &str = "http://127.0.0.1:8080"; // Backend server address (adjust as needed)
 
@@ -60,17 +61,17 @@ async fn handle_request(req: Request<Body>, remote_addr: SocketAddr) -> Result<R
 
     // Build new URI based on the BACKEND address
     let mut parts = req.uri().clone().into_parts();
-    let backend_uri: Uri = BACKEND.parse().map_err(|e| {
+    let backend_uri: Uri = BACKEND.parse().map_err(|e: hyper::http::uri::InvalidUri| {
         log::error!("Failed to parse backend URI: {}", e);
-        hyper::Error::from(std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
+        hyper::Error::new_user_body(Box::new(e))
     })?;
     
     parts.scheme = backend_uri.scheme().cloned();
     parts.authority = backend_uri.authority().cloned();
     
-    let new_uri = Uri::from_parts(parts).map_err(|e| {
+    let new_uri = Uri::from_parts(parts).map_err(|e: hyper::http::Error| {
         log::error!("Failed to build URI: {}", e);
-        hyper::Error::from(std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
+        hyper::Error::new_user_body(Box::new(e))
     })?;
 
     // Rebuild the request with the updated URI
@@ -90,9 +91,9 @@ async fn handle_request(req: Request<Body>, remote_addr: SocketAddr) -> Result<R
         .header("X-Forwarded-Proto", "http")
         .header("X-Forwarded-Host", host);
 
-    let proxy_req = req_builder.body(body).map_err(|e| {
+    let proxy_req = req_builder.body(body).map_err(|e: hyper::http::Error| {
         log::error!("Failed to build proxy request: {}", e);
-        hyper::Error::from(std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
+        hyper::Error::new_user_body(Box::new(e))
     })?;
 
     // Forward the request to the backend and return the response
