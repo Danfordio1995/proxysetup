@@ -66,15 +66,21 @@
                 const response = await fetch('/api/login', {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json'
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
                     },
                     body: JSON.stringify({ username, password })
                 });
 
                 if (response.ok) {
                     const data = await response.json();
-                    localStorage.setItem('token', data.token);
-                    window.location.href = '/admin';
+                    if (data.token) {
+                        localStorage.setItem('token', data.token);
+                        window.location.href = '/admin';
+                    } else {
+                        errorMessage.textContent = 'Invalid response from server';
+                        errorMessage.classList.remove('hidden');
+                    }
                 } else {
                     errorMessage.classList.remove('hidden');
                 }
@@ -89,9 +95,10 @@
         if (token) {
             fetch('/api/verify', {
                 headers: {
-                    'Authorization': `Bearer ${token}`
+                    'Authorization': `Bearer ${token}`,
+                    'Accept': 'application/json'
                 }
-            }).then(response => {
+            }).then(async response => {
                 if (response.ok) {
                     window.location.href = '/admin';
                 } else {

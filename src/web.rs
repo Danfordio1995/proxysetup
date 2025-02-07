@@ -140,8 +140,9 @@ pub async fn run_web_interface() {
 
     // Verify token endpoint
     let verify_api = warp::path!("api" / "verify")
+        .and(warp::header("authorization"))
         .and(with_auth())
-        .map(|claims: Claims| {
+        .map(|_auth_header: String, claims: Claims| {
             warp::reply::json(&json!({
                 "status": "valid",
                 "role": claims.role
@@ -259,6 +260,14 @@ pub async fn run_web_interface() {
         .with(warp::cors().allow_any_origin())
         .recover(handle_rejection);
 
+    // Create CORS configuration
+    let cors = warp::cors()
+        .allow_any_origin()
+        .allow_methods(vec!["GET", "POST", "DELETE", "OPTIONS"])
+        .allow_headers(vec!["Content-Type", "Authorization", "Accept"])
+        .expose_headers(vec!["Content-Type", "Authorization"])
+        .max_age(3600);
+
     // Combine all routes
     let routes = root
         .or(login_page)
@@ -272,10 +281,8 @@ pub async fn run_web_interface() {
         .or(get_metrics)
         .or(ws_metrics)
         .or(acl_routes)
-        .with(warp::cors::cors()
-            .allow_any_origin()
-            .allow_headers(vec!["content-type", "authorization"])
-            .allow_methods(vec!["GET", "POST", "DELETE"]));
+        .recover(handle_rejection)
+        .with(cors);
 
     println!("Web interface running on http://localhost:9000");
     println!("Default admin credentials: username='admin', password='admin123'");
