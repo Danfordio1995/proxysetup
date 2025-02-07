@@ -3,7 +3,6 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use std::fs;
 use lazy_static::lazy_static;
-use crate::web::ProxyConfig;
 use std::collections::HashMap;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -23,6 +22,49 @@ impl Default for MetricsData {
             cache_misses: 0,
             throttled_requests: 0,
             active_connections: 0,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct BackendConfig {
+    pub url: String,
+    pub enabled: bool,
+    #[serde(default)]
+    pub rate_limit: Option<f64>,
+    #[serde(default)]
+    pub timeout_seconds: Option<u64>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ProxyConfig {
+    pub backends: HashMap<String, BackendConfig>,
+    pub default_backend: String,
+    #[serde(default = "default_port")]
+    pub port: u16,
+}
+
+fn default_port() -> u16 {
+    8000
+}
+
+impl Default for ProxyConfig {
+    fn default() -> Self {
+        let mut backends = HashMap::new();
+        backends.insert(
+            "default".to_string(),
+            BackendConfig {
+                url: "http://127.0.0.1:8080".to_string(),
+                enabled: true,
+                rate_limit: Some(100.0),
+                timeout_seconds: Some(30),
+            },
+        );
+
+        ProxyConfig {
+            backends,
+            default_backend: "default".to_string(),
+            port: default_port(),
         }
     }
 }
@@ -84,49 +126,6 @@ async fn reload_configuration() -> std::io::Result<()> {
     // Implement configuration reload logic here
     // This might involve signaling other parts of the application
     Ok(())
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct BackendConfig {
-    pub url: String,
-    pub enabled: bool,
-    #[serde(default)]
-    pub rate_limit: Option<f64>,
-    #[serde(default)]
-    pub timeout_seconds: Option<u64>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ProxyConfig {
-    pub backends: HashMap<String, BackendConfig>,
-    pub default_backend: String,
-    #[serde(default = "default_port")]
-    pub port: u16,
-}
-
-fn default_port() -> u16 {
-    8000
-}
-
-impl Default for ProxyConfig {
-    fn default() -> Self {
-        let mut backends = HashMap::new();
-        backends.insert(
-            "default".to_string(),
-            BackendConfig {
-                url: "http://127.0.0.1:8080".to_string(),
-                enabled: true,
-                rate_limit: Some(100.0),
-                timeout_seconds: Some(30),
-            },
-        );
-
-        ProxyConfig {
-            backends,
-            default_backend: "default".to_string(),
-            port: default_port(),
-        }
-    }
 }
 
 #[derive(Clone)]

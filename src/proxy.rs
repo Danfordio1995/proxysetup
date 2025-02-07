@@ -6,7 +6,7 @@ use tokio::sync::Mutex;
 use std::net::SocketAddr;
 use crate::{rate_limiter::RateLimiter, cache::cache_get, acl::check_acl, config_manager::ConfigManager};
 use crate::acl::load_acl_from_config;
-use tokio::io::{AsyncRead, AsyncWrite, AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use std::sync::Arc;
 use std::time::Duration;
