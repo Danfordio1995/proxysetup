@@ -10,9 +10,9 @@ use prometheus::{Encoder, TextEncoder};
 use warp::reply::Reply;
 use warp::http::StatusCode;
 use warp::Rejection;
-use crate::auth::{with_auth, handle_rejection};
-use crate::users::{UserRole, Claims};
-use crate::acl::{self, AclConfig as AclConfigFromAcl};
+use proxy_project::auth::{with_auth, handle_rejection};
+use proxy_project::users::{UserRole, Claims};
+use proxy_project::acl::{self, AclConfig as AclConfigFromAcl};
 use serde_json::json;
 
 // Add configuration structures
