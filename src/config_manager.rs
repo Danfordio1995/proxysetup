@@ -61,7 +61,7 @@ pub async fn get_metrics() -> MetricsData {
 
 // Configuration management
 pub async fn save_config(config: &ProxyConfig) -> std::io::Result<()> {
-    let config_path = "/opt/proxy_project/config/proxy.json";
+    let config_path = "proxy_project/config/proxy.json";
     let config_str = serde_json::to_string_pretty(config)?;
     fs::write(config_path, config_str)?;
     
@@ -71,7 +71,7 @@ pub async fn save_config(config: &ProxyConfig) -> std::io::Result<()> {
 }
 
 pub async fn load_config() -> std::io::Result<ProxyConfig> {
-    let config_path = "/opt/proxy_project/config/proxy.json";
+    let config_path = "proxy_project/config/proxy.json";
     if let Ok(config_str) = fs::read_to_string(config_path) {
         Ok(serde_json::from_str(&config_str)?)
     } else {
