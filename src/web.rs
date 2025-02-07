@@ -148,57 +148,68 @@ pub async fn run_web_interface() {
     let config_state = Arc::clone(&PROXY_CONFIG);
     
     // GET current configuration
-    let get_config = warp::path!("api" / "config")
-        .and(warp::get())
-        .and_then(move || {
-            let config_state = Arc::clone(&config_state);
-            async move {
-                let config = config_state.read().await;
-                Ok::<_, Rejection>(warp::reply::json(&*config))
-            }
-        })
-        .boxed();
+    let get_config = {
+        let config_state = Arc::clone(&config_state);
+        warp::path!("api" / "config")
+            .and(warp::get())
+            .and_then(move || {
+                let config_state = Arc::clone(&config_state);
+                async move {
+                    let config = config_state.read().await;
+                    Ok::<_, Rejection>(warp::reply::json(&*config))
+                }
+            })
+            .boxed()
+    };
 
     // POST update configuration
-    let update_config = warp::path!("api" / "config")
-        .and(warp::post())
-        .and(warp::body::json())
-        .and_then(move |new_config: ProxyConfig| {
-            let config_state = Arc::clone(&config_state);
-            async move {
-                let mut config = config_state.write().await;
-                *config = new_config;
-                
-                if let Err(e) = save_config_to_disk(&new_config) {
-                    log::error!("Failed to save configuration: {}", e);
-                    return Ok::<_, Rejection>(warp::reply::with_status(
-                        "Failed to save configuration",
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                    ));
-                }
+    let update_config = {
+        let config_state = Arc::clone(&config_state);
+        warp::path!("api" / "config")
+            .and(warp::post())
+            .and(warp::body::json())
+            .and_then(move |new_config: ProxyConfig| {
+                let config_state = Arc::clone(&config_state);
+                async move {
+                    let mut config = config_state.write().await;
+                    // Clone new_config before moving it into config
+                    let new_config_clone = new_config.clone();
+                    *config = new_config;
+                    
+                    if let Err(e) = save_config_to_disk(&new_config_clone) {
+                        log::error!("Failed to save configuration: {}", e);
+                        return Ok::<_, Rejection>(warp::reply::with_status(
+                            "Failed to save configuration",
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                        ));
+                    }
 
-                Ok(warp::reply::with_status(
-                    "Configuration updated successfully",
-                    StatusCode::OK,
-                ))
-            }
-        })
-        .boxed();
+                    Ok(warp::reply::with_status(
+                        "Configuration updated successfully",
+                        StatusCode::OK,
+                    ))
+                }
+            })
+            .boxed()
+    };
 
     // Add API endpoints for metrics
     let metrics_state = Arc::clone(&METRICS);
     
     // GET current metrics
-    let get_metrics = warp::path!("api" / "metrics")
-        .and(warp::get())
-        .and_then(move || {
-            let metrics_state = Arc::clone(&metrics_state);
-            async move {
-                let metrics = metrics_state.read().await;
-                Ok::<_, Rejection>(warp::reply::json(&*metrics))
-            }
-        })
-        .boxed();
+    let get_metrics = {
+        let metrics_state = Arc::clone(&metrics_state);
+        warp::path!("api" / "metrics")
+            .and(warp::get())
+            .and_then(move || {
+                let metrics_state = Arc::clone(&metrics_state);
+                async move {
+                    let metrics = metrics_state.read().await;
+                    Ok::<_, Rejection>(warp::reply::json(&*metrics))
+                }
+            })
+            .boxed()
+    };
 
     // WebSocket endpoint for real-time metrics updates
     let ws_metrics = warp::path!("ws" / "metrics")
