@@ -5,6 +5,8 @@ use lazy_static::lazy_static;
 use tokio::sync::Mutex;
 use std::net::SocketAddr;
 use crate::{rate_limiter::RateLimiter, cache::cache_get, acl::check_acl};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
 
 static BACKEND: &str = "http://127.0.0.1:8080";
 
@@ -14,6 +16,28 @@ lazy_static! {
 
     // Global rate limiter: capacity of 100 tokens with a refill rate of 100 tokens per second.
     static ref GLOBAL_RATE_LIMITER: Mutex<RateLimiter> = Mutex::new(RateLimiter::new(100.0, 100.0));
+}
+
+async fn tunnel(mut client_conn: hyper::upgrade::Upgraded, addr: String) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let mut server_conn = TcpStream::connect(addr).await?;
+    
+    let (mut client_read, mut client_write) = tokio::io::split(client_conn);
+    let (mut server_read, mut server_write) = server_conn.split();
+
+    let client_to_server = async {
+        tokio::io::copy(&mut client_read, &mut server_write).await?;
+        server_write.shutdown().await?;
+        Ok::<_, std::io::Error>(())
+    };
+
+    let server_to_client = async {
+        tokio::io::copy(&mut server_read, &mut client_write).await?;
+        client_write.shutdown().await?;
+        Ok::<_, std::io::Error>(())
+    };
+
+    tokio::try_join!(client_to_server, server_to_client)?;
+    Ok(())
 }
 
 /// Handles incoming HTTP requests and forwards them to the backend.
@@ -31,6 +55,39 @@ async fn handle_request(req: Request<Body>, remote_addr: SocketAddr) -> Result<R
                 .body(Body::from("Too Many Requests"))
                 .unwrap());
         }
+    }
+
+    // Handle CONNECT method for HTTPS tunneling
+    if req.method() == hyper::Method::CONNECT {
+        let addr = match req.uri().authority() {
+            Some(authority) => authority.to_string(),
+            None => {
+                return Ok(Response::builder()
+                    .status(400)
+                    .body(Body::from("Missing authority in CONNECT request"))
+                    .unwrap());
+            }
+        };
+
+        // Create a response that will be upgraded
+        let resp = Response::builder()
+            .status(200)
+            .body(Body::empty())
+            .unwrap();
+
+        // Spawn a task to handle the tunnel
+        tokio::spawn(async move {
+            match hyper::upgrade::on(req).await {
+                Ok(upgraded) => {
+                    if let Err(e) = tunnel(upgraded, addr).await {
+                        log::error!("Tunnel error: {}", e);
+                    }
+                }
+                Err(e) => log::error!("Upgrade error: {}", e),
+            }
+        });
+
+        return Ok(resp);
     }
 
     // Clone the host string to avoid borrowing issues when consuming `req` later.
