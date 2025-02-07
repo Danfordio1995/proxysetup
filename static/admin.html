@@ -13,7 +13,8 @@
                 <div class="flex items-center">
                     <h1 class="text-xl font-bold">Proxy Admin Dashboard</h1>
                 </div>
-                <div class="flex items-center">
+                <div class="flex items-center space-x-4">
+                    <a href="/config" class="text-gray-700 hover:text-gray-900">Configuration</a>
                     <button id="logoutBtn" class="text-gray-700 hover:text-gray-900">Logout</button>
                 </div>
             </div>
@@ -21,11 +22,30 @@
     </nav>
 
     <main class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-        <!-- User Management Section (Admin Only) -->
-        <div id="adminSection" class="hidden">
-            <div class="bg-white shadow rounded-lg p-6 mb-6">
-                <h2 class="text-lg font-medium mb-4">Create New User</h2>
-                <form id="createUserForm" class="space-y-4">
+        <!-- Proxy Status Section -->
+        <div class="bg-white shadow rounded-lg p-6 mb-6">
+            <h2 class="text-lg font-medium mb-4">Proxy Status</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div class="bg-gray-50 p-4 rounded-lg">
+                    <h3 class="text-sm font-medium text-gray-500">Active Connections</h3>
+                    <p id="activeConnections" class="mt-1 text-2xl font-semibold text-gray-900">0</p>
+                </div>
+                <div class="bg-gray-50 p-4 rounded-lg">
+                    <h3 class="text-sm font-medium text-gray-500">Total Requests</h3>
+                    <p id="totalRequests" class="mt-1 text-2xl font-semibold text-gray-900">0</p>
+                </div>
+                <div class="bg-gray-50 p-4 rounded-lg">
+                    <h3 class="text-sm font-medium text-gray-500">Cache Hit Rate</h3>
+                    <p id="cacheHitRate" class="mt-1 text-2xl font-semibold text-gray-900">0%</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- User Management Section -->
+        <div class="bg-white shadow rounded-lg p-6 mb-6">
+            <h2 class="text-lg font-medium mb-4">User Management</h2>
+            <form id="createUserForm" class="space-y-4 mb-6">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
                         <label for="newUsername" class="block text-sm font-medium text-gray-700">Username</label>
                         <input type="text" id="newUsername" required
@@ -44,86 +64,64 @@
                             <option value="Admin">Admin</option>
                         </select>
                     </div>
+                </div>
+                <div>
                     <button type="submit"
-                        class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700">
+                        class="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700">
                         Create User
                     </button>
-                </form>
-            </div>
-
-            <div class="bg-white shadow rounded-lg p-6">
-                <h2 class="text-lg font-medium mb-4">User Management</h2>
-                <div id="usersList" class="divide-y divide-gray-200">
-                    <!-- Users will be listed here -->
                 </div>
-            </div>
+            </form>
 
-            <!-- ACL Management Section -->
-            <div class="bg-white shadow rounded-lg p-6 mb-6">
-                <h2 class="text-lg font-medium mb-4">ACL Management</h2>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <!-- Blocked Domains -->
-                    <div>
-                        <h3 class="text-md font-medium mb-2">Blocked Domains</h3>
-                        <div class="space-y-2">
-                            <div class="flex gap-2">
-                                <input type="text" id="newBlockedDomain" placeholder="domain.com or *.domain.com"
-                                    class="flex-1 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
-                                <button onclick="addBlockedDomain()"
-                                    class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">
-                                    Add
-                                </button>
-                            </div>
-                            <div id="blockedDomainsList" class="space-y-2">
-                                <!-- Blocked domains will be listed here -->
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Blocked IPs -->
-                    <div>
-                        <h3 class="text-md font-medium mb-2">Blocked IPs</h3>
-                        <div class="space-y-2">
-                            <div class="flex gap-2">
-                                <input type="text" id="newBlockedIP" placeholder="IP or CIDR (e.g., 1.2.3.4 or 1.2.3.0/24)"
-                                    class="flex-1 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
-                                <button onclick="addBlockedIP()"
-                                    class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">
-                                    Add
-                                </button>
-                            </div>
-                            <div id="blockedIPsList" class="space-y-2">
-                                <!-- Blocked IPs will be listed here -->
-                            </div>
-                        </div>
-                    </div>
-                </div>
+            <div id="usersList" class="divide-y divide-gray-200">
+                <!-- Users will be listed here -->
             </div>
         </div>
 
-        <!-- Proxy Status Section (All Users) -->
-        <div class="bg-white shadow rounded-lg p-6 mt-6">
-            <h2 class="text-lg font-medium mb-4">Proxy Status</h2>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div class="bg-gray-50 p-4 rounded-lg">
-                    <h3 class="text-sm font-medium text-gray-500">Active Connections</h3>
-                    <p id="activeConnections" class="mt-1 text-2xl font-semibold text-gray-900">0</p>
+        <!-- ACL Management Section -->
+        <div class="bg-white shadow rounded-lg p-6">
+            <h2 class="text-lg font-medium mb-4">ACL Management</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Blocked Domains -->
+                <div>
+                    <h3 class="text-md font-medium mb-2">Blocked Domains</h3>
+                    <div class="space-y-2">
+                        <div class="flex gap-2">
+                            <input type="text" id="newBlockedDomain" placeholder="domain.com or *.domain.com"
+                                class="flex-1 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                            <button onclick="addBlockedDomain()"
+                                class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">
+                                Add
+                            </button>
+                        </div>
+                        <div id="blockedDomainsList" class="space-y-2">
+                            <!-- Blocked domains will be listed here -->
+                        </div>
+                    </div>
                 </div>
-                <div class="bg-gray-50 p-4 rounded-lg">
-                    <h3 class="text-sm font-medium text-gray-500">Total Requests</h3>
-                    <p id="totalRequests" class="mt-1 text-2xl font-semibold text-gray-900">0</p>
-                </div>
-                <div class="bg-gray-50 p-4 rounded-lg">
-                    <h3 class="text-sm font-medium text-gray-500">Cache Hit Rate</h3>
-                    <p id="cacheHitRate" class="mt-1 text-2xl font-semibold text-gray-900">0%</p>
+
+                <!-- Blocked IPs -->
+                <div>
+                    <h3 class="text-md font-medium mb-2">Blocked IPs</h3>
+                    <div class="space-y-2">
+                        <div class="flex gap-2">
+                            <input type="text" id="newBlockedIP" placeholder="IP or CIDR (e.g., 1.2.3.4 or 1.2.3.0/24)"
+                                class="flex-1 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                            <button onclick="addBlockedIP()"
+                                class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">
+                                Add
+                            </button>
+                        </div>
+                        <div id="blockedIPsList" class="space-y-2">
+                            <!-- Blocked IPs will be listed here -->
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
     </main>
 
     <script>
-        let userRole = null;
-
         // Check authentication on page load
         async function checkAuth() {
             const token = localStorage.getItem('token');
@@ -142,14 +140,6 @@
                 if (!response.ok) {
                     localStorage.removeItem('token');
                     window.location.href = '/login';
-                    return;
-                }
-
-                const data = await response.json();
-                userRole = data.role;
-                if (userRole === 'Admin') {
-                    document.getElementById('adminSection').classList.remove('hidden');
-                    loadUsers();
                 }
             } catch (error) {
                 console.error('Auth check failed:', error);
@@ -157,13 +147,12 @@
             }
         }
 
-        // Load users list (Admin only)
+        // Load users list
         async function loadUsers() {
-            const token = localStorage.getItem('token');
             try {
                 const response = await fetch('/api/users', {
                     headers: {
-                        'Authorization': `Bearer ${token}`
+                        'Authorization': `Bearer ${localStorage.getItem('token')}`
                     }
                 });
 
@@ -190,7 +179,6 @@
         // Create new user
         document.getElementById('createUserForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            const token = localStorage.getItem('token');
             const username = document.getElementById('newUsername').value;
             const password = document.getElementById('newPassword').value;
             const role = document.getElementById('userRole').value;
@@ -199,7 +187,7 @@
                 const response = await fetch('/api/users', {
                     method: 'POST',
                     headers: {
-                        'Authorization': `Bearer ${token}`,
+                        'Authorization': `Bearer ${localStorage.getItem('token')}`,
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({ username, password, role })
@@ -224,12 +212,11 @@
                 return;
             }
 
-            const token = localStorage.getItem('token');
             try {
                 const response = await fetch(`/api/users/${username}`, {
                     method: 'DELETE',
                     headers: {
-                        'Authorization': `Bearer ${token}`
+                        'Authorization': `Bearer ${localStorage.getItem('token')}`
                     }
                 });
 
@@ -245,43 +232,12 @@
             }
         }
 
-        // Update metrics
-        async function updateMetrics() {
-            const token = localStorage.getItem('token');
-            try {
-                const response = await fetch('/api/metrics', {
-                    headers: {
-                        'Authorization': `Bearer ${token}`
-                    }
-                });
-
-                if (response.ok) {
-                    const metrics = await response.json();
-                    document.getElementById('activeConnections').textContent = metrics.active_connections;
-                    document.getElementById('totalRequests').textContent = metrics.total_requests;
-                    const hitRate = metrics.total_requests > 0
-                        ? ((metrics.cache_hits / metrics.total_requests) * 100).toFixed(1)
-                        : '0.0';
-                    document.getElementById('cacheHitRate').textContent = `${hitRate}%`;
-                }
-            } catch (error) {
-                console.error('Failed to update metrics:', error);
-            }
-        }
-
-        // Logout
-        document.getElementById('logoutBtn').addEventListener('click', () => {
-            localStorage.removeItem('token');
-            window.location.href = '/login';
-        });
-
         // Load ACL settings
         async function loadACLSettings() {
-            const token = localStorage.getItem('token');
             try {
                 const response = await fetch('/api/acl', {
                     headers: {
-                        'Authorization': `Bearer ${token}`
+                        'Authorization': `Bearer ${localStorage.getItem('token')}`
                     }
                 });
 
@@ -319,16 +275,14 @@
 
         // Add blocked domain
         async function addBlockedDomain() {
-            const token = localStorage.getItem('token');
             const domain = document.getElementById('newBlockedDomain').value.trim();
-            
             if (!domain) return;
 
             try {
                 const response = await fetch('/api/acl/domains', {
                     method: 'POST',
                     headers: {
-                        'Authorization': `Bearer ${token}`,
+                        'Authorization': `Bearer ${localStorage.getItem('token')}`,
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({ domain })
@@ -349,12 +303,11 @@
 
         // Remove blocked domain
         async function removeBlockedDomain(domain) {
-            const token = localStorage.getItem('token');
             try {
                 const response = await fetch(`/api/acl/domains/${encodeURIComponent(domain)}`, {
                     method: 'DELETE',
                     headers: {
-                        'Authorization': `Bearer ${token}`
+                        'Authorization': `Bearer ${localStorage.getItem('token')}`
                     }
                 });
 
@@ -372,16 +325,14 @@
 
         // Add blocked IP
         async function addBlockedIP() {
-            const token = localStorage.getItem('token');
             const ip = document.getElementById('newBlockedIP').value.trim();
-            
             if (!ip) return;
 
             try {
                 const response = await fetch('/api/acl/ips', {
                     method: 'POST',
                     headers: {
-                        'Authorization': `Bearer ${token}`,
+                        'Authorization': `Bearer ${localStorage.getItem('token')}`,
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({ ip })
@@ -402,12 +353,11 @@
 
         // Remove blocked IP
         async function removeBlockedIP(ip) {
-            const token = localStorage.getItem('token');
             try {
                 const response = await fetch(`/api/acl/ips/${encodeURIComponent(ip)}`, {
                     method: 'DELETE',
                     headers: {
-                        'Authorization': `Bearer ${token}`
+                        'Authorization': `Bearer ${localStorage.getItem('token')}`
                     }
                 });
 
@@ -423,18 +373,40 @@
             }
         }
 
-        // Add loadACLSettings to initialization
-        async function initializeAdmin() {
-            await checkAuth();
-            if (userRole === 'Admin') {
-                loadUsers();
-                loadACLSettings();
+        // Update metrics
+        async function updateMetrics() {
+            try {
+                const response = await fetch('/api/metrics', {
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('token')}`
+                    }
+                });
+
+                if (response.ok) {
+                    const metrics = await response.json();
+                    document.getElementById('activeConnections').textContent = metrics.active_connections;
+                    document.getElementById('totalRequests').textContent = metrics.total_requests;
+                    const hitRate = metrics.total_requests > 0
+                        ? ((metrics.cache_hits / metrics.total_requests) * 100).toFixed(1)
+                        : '0.0';
+                    document.getElementById('cacheHitRate').textContent = `${hitRate}%`;
+                }
+            } catch (error) {
+                console.error('Failed to update metrics:', error);
             }
-            updateMetrics();
         }
 
+        // Logout button handler
+        document.getElementById('logoutBtn').addEventListener('click', () => {
+            localStorage.removeItem('token');
+            window.location.href = '/login';
+        });
+
         // Initialize
-        initializeAdmin();
+        checkAuth();
+        loadUsers();
+        loadACLSettings();
+        updateMetrics();
         setInterval(updateMetrics, 5000);
     </script>
 </body>

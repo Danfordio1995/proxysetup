@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Proxy Configuration</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <nav class="bg-white shadow-lg">
+        <div class="max-w-7xl mx-auto px-4">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <h1 class="text-xl font-bold">Proxy Configuration</h1>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <a href="/admin" class="text-gray-700 hover:text-gray-900">Dashboard</a>
+                    <button id="logoutBtn" class="text-gray-700 hover:text-gray-900">Logout</button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+        <form id="configForm" class="space-y-6">
+            <!-- Backend Configuration -->
+            <div class="bg-white shadow rounded-lg p-6">
+                <h2 class="text-lg font-medium mb-4">Backend Configuration</h2>
+                <div class="space-y-4">
+                    <div>
+                        <label for="listenAddr" class="block text-sm font-medium text-gray-700">Listen Address</label>
+                        <input type="text" id="listenAddr" name="listenAddr" required
+                            class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                            placeholder="0.0.0.0:9000">
+                    </div>
+                    <div>
+                        <label for="tlsEnabled" class="block text-sm font-medium text-gray-700">TLS Settings</label>
+                        <div class="mt-2">
+                            <label class="inline-flex items-center">
+                                <input type="checkbox" id="tlsEnabled" name="tlsEnabled"
+                                    class="rounded border-gray-300 text-indigo-600 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                                <span class="ml-2">Enable TLS</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div id="tlsSettings" class="space-y-4 hidden">
+                        <div>
+                            <label for="certPath" class="block text-sm font-medium text-gray-700">Certificate Path</label>
+                            <input type="text" id="certPath" name="certPath"
+                                class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                placeholder="/path/to/cert.pem">
+                        </div>
+                        <div>
+                            <label for="keyPath" class="block text-sm font-medium text-gray-700">Key Path</label>
+                            <input type="text" id="keyPath" name="keyPath"
+                                class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                placeholder="/path/to/key.pem">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Rate Limiting Configuration -->
+            <div class="bg-white shadow rounded-lg p-6">
+                <h2 class="text-lg font-medium mb-4">Rate Limiting</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label for="rateLimit" class="block text-sm font-medium text-gray-700">Requests per Second</label>
+                        <input type="number" id="rateLimit" name="rateLimit" min="1" required
+                            class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                            placeholder="100">
+                    </div>
+                    <div>
+                        <label for="burstSize" class="block text-sm font-medium text-gray-700">Burst Size</label>
+                        <input type="number" id="burstSize" name="burstSize" min="1" required
+                            class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                            placeholder="200">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Cache Configuration -->
+            <div class="bg-white shadow rounded-lg p-6">
+                <h2 class="text-lg font-medium mb-4">Cache Settings</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label for="cacheEnabled" class="block text-sm font-medium text-gray-700">Cache Status</label>
+                        <div class="mt-2">
+                            <label class="inline-flex items-center">
+                                <input type="checkbox" id="cacheEnabled" name="cacheEnabled"
+                                    class="rounded border-gray-300 text-indigo-600 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                                <span class="ml-2">Enable Cache</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div>
+                        <label for="cacheSize" class="block text-sm font-medium text-gray-700">Cache Size (MB)</label>
+                        <input type="number" id="cacheSize" name="cacheSize" min="1"
+                            class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                            placeholder="1000">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Submit Button -->
+            <div class="flex justify-end">
+                <button type="submit"
+                    class="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                    Save Configuration
+                </button>
+            </div>
+        </form>
+    </main>
+
+    <script>
+        // Check authentication on page load
+        async function checkAuth() {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                window.location.href = '/login';
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/verify', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (!response.ok) {
+                    localStorage.removeItem('token');
+                    window.location.href = '/login';
+                }
+            } catch (error) {
+                console.error('Auth check failed:', error);
+                window.location.href = '/login';
+            }
+        }
+
+        // Load current configuration
+        async function loadConfig() {
+            try {
+                const response = await fetch('/api/config', {
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('token')}`
+                    }
+                });
+
+                if (response.ok) {
+                    const config = await response.json();
+                    
+                    // Set form values
+                    document.getElementById('listenAddr').value = config.listen_addr;
+                    document.getElementById('tlsEnabled').checked = config.tls_enabled;
+                    document.getElementById('certPath').value = config.cert_path || '';
+                    document.getElementById('keyPath').value = config.key_path || '';
+                    document.getElementById('rateLimit').value = config.rate_limit;
+                    document.getElementById('burstSize').value = config.burst_size;
+                    document.getElementById('cacheEnabled').checked = config.cache_enabled;
+                    document.getElementById('cacheSize').value = config.cache_size;
+
+                    // Show/hide TLS settings
+                    document.getElementById('tlsSettings').classList.toggle('hidden', !config.tls_enabled);
+                }
+            } catch (error) {
+                console.error('Failed to load configuration:', error);
+            }
+        }
+
+        // Handle form submission
+        document.getElementById('configForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const config = {
+                listen_addr: document.getElementById('listenAddr').value,
+                tls_enabled: document.getElementById('tlsEnabled').checked,
+                cert_path: document.getElementById('certPath').value,
+                key_path: document.getElementById('keyPath').value,
+                rate_limit: parseInt(document.getElementById('rateLimit').value),
+                burst_size: parseInt(document.getElementById('burstSize').value),
+                cache_enabled: document.getElementById('cacheEnabled').checked,
+                cache_size: parseInt(document.getElementById('cacheSize').value)
+            };
+
+            try {
+                const response = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(config)
+                });
+
+                if (response.ok) {
+                    alert('Configuration saved successfully');
+                } else {
+                    const data = await response.json();
+                    alert(data.error || 'Failed to save configuration');
+                }
+            } catch (error) {
+                console.error('Failed to save configuration:', error);
+                alert('Failed to save configuration');
+            }
+        });
+
+        // Toggle TLS settings visibility
+        document.getElementById('tlsEnabled').addEventListener('change', (e) => {
+            document.getElementById('tlsSettings').classList.toggle('hidden', !e.target.checked);
+        });
+
+        // Logout button handler
+        document.getElementById('logoutBtn').addEventListener('click', () => {
+            localStorage.removeItem('token');
+            window.location.href = '/login';
+        });
+
+        // Initialize
+        checkAuth();
+        loadConfig();
+    </script>
+</body>
+</html> 

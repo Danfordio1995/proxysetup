@@ -3,63 +3,104 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proxy Admin Login</title>
+    <title>Proxy Login</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
 </head>
-<body class="bg-gray-100 h-screen flex items-center justify-center">
-    <div class="bg-white p-8 rounded-lg shadow-md w-96">
-        <h1 class="text-2xl font-bold mb-6 text-center">Proxy Admin Login</h1>
-        <form id="loginForm" class="space-y-4">
-            <div>
-                <label for="username" class="block text-sm font-medium text-gray-700">Username</label>
-                <input type="text" id="username" name="username" required
-                    class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+<body class="bg-gray-100 min-h-screen flex items-center justify-center">
+    <div class="max-w-md w-full space-y-8 p-8 bg-white shadow-lg rounded-lg">
+        <div>
+            <h2 class="mt-6 text-center text-3xl font-extrabold text-gray-900">
+                Proxy Admin Login
+            </h2>
+            <p class="mt-2 text-center text-sm text-gray-600">
+                Please sign in to access the admin dashboard
+            </p>
+        </div>
+        <form id="loginForm" class="mt-8 space-y-6">
+            <div class="rounded-md shadow-sm -space-y-px">
+                <div>
+                    <label for="username" class="sr-only">Username</label>
+                    <input id="username" name="username" type="text" required
+                        class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
+                        placeholder="Username">
+                </div>
+                <div>
+                    <label for="password" class="sr-only">Password</label>
+                    <input id="password" name="password" type="password" required
+                        class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
+                        placeholder="Password">
+                </div>
             </div>
+
             <div>
-                <label for="password" class="block text-sm font-medium text-gray-700">Password</label>
-                <input type="password" id="password" name="password" required
-                    class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                <button type="submit"
+                    class="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                    <span class="absolute left-0 inset-y-0 flex items-center pl-3">
+                        <svg class="h-5 w-5 text-indigo-500 group-hover:text-indigo-400"
+                            xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"
+                            aria-hidden="true">
+                            <path fill-rule="evenodd"
+                                d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z"
+                                clip-rule="evenodd" />
+                        </svg>
+                    </span>
+                    Sign in
+                </button>
             </div>
-            <button type="submit"
-                class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
-                Sign in
-            </button>
         </form>
-        <div id="error" class="mt-4 text-red-600 text-sm hidden"></div>
+
+        <div id="errorMessage" class="mt-4 text-center text-sm text-red-600 hidden">
+            Invalid username or password
+        </div>
     </div>
 
     <script>
         document.getElementById('loginForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            const errorDiv = document.getElementById('error');
-            errorDiv.classList.add('hidden');
-
+            
             const username = document.getElementById('username').value;
             const password = document.getElementById('password').value;
+            const errorMessage = document.getElementById('errorMessage');
 
             try {
                 const response = await fetch('/api/login', {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json',
+                        'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ username, password }),
+                    body: JSON.stringify({ username, password })
                 });
 
-                const data = await response.json();
-
                 if (response.ok) {
+                    const data = await response.json();
                     localStorage.setItem('token', data.token);
                     window.location.href = '/admin';
                 } else {
-                    errorDiv.textContent = data.error || 'Login failed';
-                    errorDiv.classList.remove('hidden');
+                    errorMessage.classList.remove('hidden');
                 }
             } catch (error) {
-                errorDiv.textContent = 'An error occurred. Please try again.';
-                errorDiv.classList.remove('hidden');
+                console.error('Login failed:', error);
+                errorMessage.classList.remove('hidden');
             }
         });
+
+        // Check if already logged in
+        const token = localStorage.getItem('token');
+        if (token) {
+            fetch('/api/verify', {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            }).then(response => {
+                if (response.ok) {
+                    window.location.href = '/admin';
+                } else {
+                    localStorage.removeItem('token');
+                }
+            }).catch(() => {
+                localStorage.removeItem('token');
+            });
+        }
     </script>
 </body>
 </html> 
